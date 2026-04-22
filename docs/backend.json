@@ -1,0 +1,447 @@
+
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user within the application, identified by an external authentication system. Contains basic profile information.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity, typically provided by an external authentication system (e.g., Google ID)."
+        },
+        "name": {
+          "type": "string",
+          "description": "The full name of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "The email address of the user.",
+          "format": "email"
+        },
+        "avatarUrl": {
+          "type": "string",
+          "description": "URL to the user's avatar image.",
+          "format": "uri"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "email"
+      ]
+    },
+    "Workspace": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Workspace",
+      "type": "object",
+      "description": "A top-level container for organizing projects and tasks. Users can belong to multiple workspaces.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Workspace entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the workspace."
+        },
+        "description": {
+          "type": "string",
+          "description": "A brief description of the workspace."
+        },
+        "color": {
+          "type": "string",
+          "description": "A color code or name associated with the workspace for visual identification (e.g., '#RRGGBB')."
+        },
+        "ownerUserId": {
+          "type": "string",
+          "description": "Reference to the User who owns this workspace. (Relationship: User 1:N Workspace)"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the workspace was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when the workspace was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "ownerUserId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkspaceMember": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "WorkspaceMember",
+      "type": "object",
+      "description": "Represents the association between a user and a workspace, indicating membership.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the WorkspaceMember entity."
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Reference to the Workspace this member belongs to. (Relationship: Workspace 1:N WorkspaceMember)"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to the User who is a member. (Relationship: User 1:N WorkspaceMember)"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The display name of the member within this specific workspace context."
+        },
+        "email": {
+          "type": "string",
+          "description": "The email address of the member within this specific workspace context.",
+          "format": "email"
+        },
+        "avatarUrl": {
+          "type": "string",
+          "description": "URL to the member's avatar image, potentially overriding the User's default avatar for this workspace.",
+          "format": "uri"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "userId",
+        "displayName",
+        "email"
+      ]
+    },
+    "Project": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Project",
+      "type": "object",
+      "description": "A collection of tasks, nested within a specific workspace.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Project entity."
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Reference to the Workspace this project belongs to. (Relationship: Workspace 1:N Project)"
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the project."
+        },
+        "description": {
+          "type": "string",
+          "description": "A detailed description of the project."
+        },
+        "color": {
+          "type": "string",
+          "description": "A color code or name associated with the project for visual identification (e.g., '#RRGGBB')."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the project was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when the project was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "name",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Task": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Task",
+      "type": "object",
+      "description": "An individual unit of work, part of a project within a workspace.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Task entity."
+        },
+        "workspaceId": {
+          "type": "string",
+          "description": "Reference to the Workspace this task belongs to. (Relationship: Workspace 1:N Task) Required for top-level filtering."
+        },
+        "projectId": {
+          "type": "string",
+          "description": "Reference to the Project this task belongs to. (Relationship: Project 1:N Task)"
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the task."
+        },
+        "description": {
+          "type": "string",
+          "description": "A detailed description of the task."
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the task."
+        },
+        "priority": {
+          "type": "string",
+          "description": "The priority level of the task."
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "The date by which the task is expected to be completed.",
+          "format": "date-time"
+        },
+        "assigneeUserId": {
+          "type": "string",
+          "description": "Reference to the User assigned to this task. (Relationship: User 1:N Task)"
+        },
+        "tags": {
+          "type": "array",
+          "description": "A list of tags associated with the task for categorization.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the task was created.",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when the task was last updated.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "projectId",
+        "title",
+        "status",
+        "priority",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Comment": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Comment",
+      "type": "object",
+      "description": "A text-based comment made on a task by a user.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Comment entity."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Reference to the Task this comment belongs to. (Relationship: Task 1:N Comment)"
+        },
+        "authorUserId": {
+          "type": "string",
+          "description": "Reference to the User who authored this comment. (Relationship: User 1:N Comment)"
+        },
+        "body": {
+          "type": "string",
+          "description": "The content of the comment."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the comment was created.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "taskId",
+        "authorUserId",
+        "body",
+        "createdAt"
+      ]
+    },
+    "Notification": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Notification",
+      "type": "object",
+      "description": "An in-app notification for a specific user.",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string", "description": "The recipient of the notification." },
+        "actorId": { "type": "string", "description": "The user who triggered the notification." },
+        "actorName": { "type": "string" },
+        "type": { "type": "string", "enum": ["task_assigned", "task_updated", "comment_added"] },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "read": { "type": "boolean" },
+        "workspaceId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "taskId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "actorId", "type", "title", "message", "read", "createdAt"]
+    }
+  },
+  "auth": {
+    "providers": [
+      "google.com",
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profile information.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/notifications/{notificationId}",
+        "definition": {
+          "entityName": "Notification",
+          "schema": {
+            "$ref": "#/backend/entities/Notification"
+          },
+          "description": "Stores user notifications.",
+          "params": [
+            {
+              "name": "notificationId",
+              "description": "The unique identifier for the notification."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/workspaces/{workspaceId}",
+        "definition": {
+          "entityName": "Workspace",
+          "schema": {
+            "$ref": "#/backend/entities/Workspace"
+          },
+          "description": "Stores details about a workspace.",
+          "params": [
+            {
+              "name": "workspaceId",
+              "description": "The unique identifier for the workspace."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/workspaces/{workspaceId}/members/{userId}",
+        "definition": {
+          "entityName": "WorkspaceMember",
+          "schema": {
+            "$ref": "#/backend/entities/WorkspaceMember"
+          },
+          "description": "Contains specific details about a user's membership within a workspace.",
+          "params": [
+            {
+              "name": "workspaceId",
+              "description": "The unique identifier of the parent workspace."
+            },
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user who is a member of this workspace."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/workspaces/{workspaceId}/projects/{projectId}",
+        "definition": {
+          "entityName": "Project",
+          "schema": {
+            "$ref": "#/backend/entities/Project"
+          },
+          "description": "Stores details about a project.",
+          "params": [
+            {
+              "name": "workspaceId",
+              "description": "The unique identifier of the parent workspace."
+            },
+            {
+              "name": "projectId",
+              "description": "The unique identifier for the project."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}",
+        "definition": {
+          "entityName": "Task",
+          "schema": {
+            "$ref": "#/backend/entities/Task"
+          },
+          "description": "Stores details about a task.",
+          "params": [
+            {
+              "name": "workspaceId",
+              "description": "The unique identifier of the parent workspace."
+            },
+            {
+              "name": "projectId",
+              "description": "The unique identifier of the parent project."
+            },
+            {
+              "name": "taskId",
+              "description": "The unique identifier for the task."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/comments/{commentId}",
+        "definition": {
+          "entityName": "Comment",
+          "schema": {
+            "$ref": "#/backend/entities/Comment"
+          },
+          "description": "Stores comments associated with a task.",
+          "params": [
+            {
+              "name": "workspaceId",
+              "description": "The unique identifier of the parent workspace."
+            },
+            {
+              "name": "projectId",
+              "description": "The unique identifier of the parent project."
+            },
+            {
+              "name": "taskId",
+              "description": "The unique identifier of the parent task."
+            },
+            {
+              "name": "commentId",
+              "description": "The unique identifier for the comment."
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,147 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isWorkspaceAdmin(workspaceId) {
+      let ws = get(/databases/$(database)/documents/workspaces/$(workspaceId));
+      let isOwner = ws.data.ownerUserId == request.auth.uid;
+      let isLead = ws.data.memberRoles[request.auth.uid] == 'lead';
+      return isOwner || isLead;
+    }
+
+    // --- NOTIFICATIONS RULES (FIXED) ---
+    match /notifications/{notificationId} {
+      // Read: user can only read their own notifications
+      // For LIST queries: Firestore will verify the query includes userId filter
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // Create: actor must be the authenticated user
+      allow create: if isSignedIn() && 
+                    request.resource.data.actorId == request.auth.uid &&
+                    request.resource.data.userId is string;
+      
+      // Update/Delete: only the recipient can do this
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // --- COLLECTION GROUP RULES ---
+    
+    match /{path=**}/tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /{path=**}/comments/{commentId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /{path=**}/attachments/{attachmentId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /{path=**}/subtasks/{subtaskId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Attendance collectionGroup rule - allows querying attendance across all workspaces
+    match /{path=**}/attendance/{attendanceId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // --- HIERARCHICAL RULES ---
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /workspaces/{workspaceId} {
+      allow read, create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUserId == request.auth.uid;
+
+      match /members/{memberUserId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn();
+      }
+
+      match /audit_logs/{logId} {
+        allow read: if isSignedIn() && isWorkspaceAdmin(workspaceId);
+        allow create: if isSignedIn() && isWorkspaceAdmin(workspaceId)
+                      && request.resource.data.actorId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /custom_statuses/{statusId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUserId == request.auth.uid;
+        allow update, delete: if isSignedIn() && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUserId == request.auth.uid;
+      }
+
+      match /attendance/{attendanceId} {
+        // Read: own entry OR workspace admin
+        allow read: if isSignedIn() && 
+          (request.auth.uid == resource.data.userId || isWorkspaceAdmin(workspaceId));
+        
+        // Create/update: only own entry
+        allow create, update: if isSignedIn() && request.auth.uid == request.resource.data.userId;
+        
+        // Delete: not needed in Phase 1
+        allow delete: if false;
+      }
+
+      match /work_updates/{updateId} {
+        // Read: own update OR workspace admin
+        allow read: if isSignedIn() && 
+          (request.auth.uid == resource.data.userId || isWorkspaceAdmin(workspaceId));
+        
+        // Create: only own update
+        allow create: if isSignedIn() && request.auth.uid == request.resource.data.userId;
+        
+        // Update/Delete: not needed
+        allow update, delete: if false;
+      }
+
+      match /projects/{projectId} {
+        allow read: if isSignedIn();
+        allow create: if isWorkspaceAdmin(workspaceId);
+        allow update, delete: if isWorkspaceAdmin(workspaceId);
+
+        match /tasks/{taskId} {
+          allow read: if isSignedIn();
+          allow write: if isSignedIn();
+
+          match /subtasks/{subtaskId} {
+            allow read: if isSignedIn();
+            allow write: if isSignedIn();
+          }
+
+          match /comments/{commentId} {
+            allow read: if isSignedIn();
+            allow write: if isSignedIn();
+          }
+
+          match /attachments/{attachmentId} {
+            allow read: if isSignedIn();
+            allow write: if isSignedIn();
+          }
+        }
+      }
+    }
+    
+    // --- INVITATIONS ---
+    match /invitations/{invitationId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
+    }
+  }
+}

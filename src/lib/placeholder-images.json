@@ -1,0 +1,10 @@
+{
+  "placeholderImages": [
+    {
+      "id": "auth-bg",
+      "description": "Professional modern office background for authentication screens.",
+      "imageUrl": "https://picsum.photos/seed/65/1920/1080",
+      "imageHint": "modern office"
+    }
+  ]
+}
