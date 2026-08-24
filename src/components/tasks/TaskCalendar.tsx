@@ -2,9 +2,10 @@
 
 import React, { useState, useMemo } from 'react';
 import { Calendar } from '@/components/ui/calendar';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { format, isSameDay, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import type { DayProps } from 'react-day-picker';
+import type { WorkspaceMemberWithRole, CurrentUser } from '@/lib/types';
 
 interface Task {
   id: string;
@@ -17,11 +18,11 @@ interface Task {
 interface TaskCalendarProps {
   tasks: Task[];
   onTaskClick: (taskId: string) => void;
-  workspaceMembers: any[];
-  currentUser: any;
+  workspaceMembers: WorkspaceMemberWithRole[];
+  currentUser: CurrentUser | null;
 }
 
-export function TaskCalendar({ tasks, onTaskClick, workspaceMembers, currentUser }: TaskCalendarProps) {
+export function TaskCalendar({ tasks, onTaskClick }: TaskCalendarProps) {
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
 
   // Group tasks by due date (normalized to YYYY-MM-DD)
@@ -40,21 +41,12 @@ export function TaskCalendar({ tasks, onTaskClick, workspaceMembers, currentUser
         }
         grouped[dateKey].push(task);
       } catch (e) {
-        console.error('Failed to parse due date:', task.dueDate);
+        console.error('Failed to parse due date:', task.dueDate, e);
       }
     });
     
     return grouped;
   }, [tasks]);
-
-  // Get status color
-  const getStatusColor = (status: string) => {
-    const statusLower = status.toLowerCase();
-    if (statusLower === 'done') return 'bg-green-500';
-    if (statusLower === 'in_progress') return 'bg-blue-500';
-    if (statusLower === 'on_hold') return 'bg-amber-500';
-    return 'bg-gray-500';
-  };
 
   // Get priority color
   const getPriorityColor = (priority: string) => {
@@ -66,7 +58,7 @@ export function TaskCalendar({ tasks, onTaskClick, workspaceMembers, currentUser
   };
 
   // Custom day cell component
-  const DayCell = (props: any) => {
+  const DayCell = (props: DayProps) => {
     const date = props.day?.date;
     
     // Handle invalid dates (outside month, null, etc.)

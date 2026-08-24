@@ -15,9 +15,24 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import type { NexusStore } from '@/hooks/use-nexus-store';
+import type { WorkspaceMemberWithRole } from '@/lib/types';
+
+type MemberRow =
+  | (WorkspaceMemberWithRole & { isInvite?: false })
+  | {
+      id: string;
+      userId: string;
+      isInvite: true;
+      inviteId: string;
+      displayName: string | null | undefined;
+      email: string;
+      role: 'owner' | 'lead' | 'member';
+      avatarUrl: null;
+    };
 
 interface MembersViewProps {
-  store: any;
+  store: NexusStore;
   onInviteClick: () => void;
   isAdmin: boolean;
 }
@@ -35,12 +50,12 @@ export function MembersView({ store, onInviteClick, isAdmin }: MembersViewProps)
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredMembers = useMemo(() => {
-    const all = [
+    const all: MemberRow[] = [
       ...(workspaceMembers || []),
-      ...(workspaceInvitations || []).map((inv: any) => ({
+      ...(workspaceInvitations || []).map((inv) => ({
         id: `invite-${inv.id}`,
         userId: `invite-${inv.id}`,
-        isInvite: true,
+        isInvite: true as const,
         inviteId: inv.id,
         displayName: inv.invitedEmail,
         email: `Invited as ${inv.role} by ${inv.invitedByName}`,
@@ -50,7 +65,7 @@ export function MembersView({ store, onInviteClick, isAdmin }: MembersViewProps)
     ];
     if (!searchQuery.trim()) return all;
     const lowerQuery = searchQuery.toLowerCase();
-    return all.filter((m: any) => 
+    return all.filter((m) => 
       (m.displayName || '').toLowerCase().includes(lowerQuery) || 
       (m.email || '').toLowerCase().includes(lowerQuery)
     );
@@ -84,7 +99,7 @@ export function MembersView({ store, onInviteClick, isAdmin }: MembersViewProps)
       <Card className="border-none shadow-sm">
         <CardContent className="p-0">
           <div className="divide-y">
-            {filteredMembers.map((member: any) => {
+            {filteredMembers.map((member) => {
               const userId = member.userId || member.id;
               const isOwner = activeWorkspace?.ownerUserId === userId;
               
@@ -92,7 +107,7 @@ export function MembersView({ store, onInviteClick, isAdmin }: MembersViewProps)
                 <div key={userId} className={cn("flex items-center justify-between p-4 hover:bg-muted/30 transition-colors", member.isInvite && "opacity-70")}>
                   <div className="flex items-center gap-4">
                     <Avatar className="h-10 w-10 border">
-                      <AvatarImage src={member.avatarUrl} />
+                      <AvatarImage src={member.avatarUrl ?? undefined} />
                       <AvatarFallback className="font-bold">
                         {member.isInvite ? <Mail className="h-4 w-4 text-muted-foreground" /> : (member.displayName || '?').charAt(0).toUpperCase()}
                       </AvatarFallback>
@@ -180,7 +195,7 @@ export function MembersView({ store, onInviteClick, isAdmin }: MembersViewProps)
             {filteredMembers.length === 0 && !isWorkspacesLoading && (
               <div className="p-12 text-center text-muted-foreground space-y-3">
                 <Search className="h-8 w-8 mx-auto opacity-20" />
-                <p>No members found matching "{searchQuery}"</p>
+                <p>No members found matching &quot;{searchQuery}&quot;</p>
                 <Button variant="link" size="sm" onClick={() => setSearchQuery('')}>Clear search</Button>
               </div>
             )}

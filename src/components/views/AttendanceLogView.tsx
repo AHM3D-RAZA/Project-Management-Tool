@@ -1,18 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Clock, LogIn, LogOut, Loader2, FileText, MessageSquare } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { Clock, LogIn, LogOut, MessageSquare } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -21,14 +13,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { NexusStore } from '@/hooks/use-nexus-store';
+import type { AttendanceEntry } from '@/lib/types';
 
-export function AttendanceLogView({ store }: { store: any }) {
+export function AttendanceLogView({ store }: { store: NexusStore }) {
   const { allWorkspaceAttendance, isAllAttendanceLoading, workspaceMembers, isAdmin, workspaceWorkUpdates, isWorkUpdatesLoading } = store;
   const [mounted, setMounted] = useState(false);
   const [filterUserId, setFilterUserId] = useState('all');
   const [filterTimeframe, setFilterTimeframe] = useState('all');
-  const [selectedUpdate, setSelectedUpdate] = useState<string | null>(null);
-  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('attendance');
 
   useEffect(() => {
@@ -67,7 +59,7 @@ export function AttendanceLogView({ store }: { store: any }) {
   // Filter logic
   const now = new Date();
   
-  const filteredAttendance = allWorkspaceAttendance.filter((entry: any) => {
+  const filteredAttendance = allWorkspaceAttendance.filter((entry) => {
     // 1. User filter
     if (filterUserId !== 'all' && entry.userId !== filterUserId) {
       return false;
@@ -96,21 +88,21 @@ export function AttendanceLogView({ store }: { store: any }) {
   });
 
   // Sort by date (most recent first)
-  const sortedAttendance = [...filteredAttendance].sort((a: any, b: any) => 
+  const sortedAttendance = [...filteredAttendance].sort((a, b) => 
     new Date(b.dateKey).getTime() - new Date(a.dateKey).getTime()
   );
 
   // Group by date
-  const groupedByDate = sortedAttendance.reduce((acc: any, entry: any) => {
+  const groupedByDate = sortedAttendance.reduce((acc: Record<string, AttendanceEntry[]>, entry) => {
     if (!acc[entry.dateKey]) {
       acc[entry.dateKey] = [];
     }
     acc[entry.dateKey].push(entry);
     return acc;
-  }, {});
+  }, {} as Record<string, AttendanceEntry[]>);
 
   const getMemberName = (userId: string) => {
-    const member = workspaceMembers.find((m: any) => m.userId === userId);
+    const member = workspaceMembers.find((m) => m.userId === userId);
     return member?.displayName || 'Unknown User';
   };
 
@@ -157,7 +149,7 @@ export function AttendanceLogView({ store }: { store: any }) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Members</SelectItem>
-              {workspaceMembers.map((m: any) => (
+              {workspaceMembers.map((m) => (
                 <SelectItem key={m.userId} value={m.userId}>
                   {m.displayName}
                 </SelectItem>
@@ -194,7 +186,7 @@ export function AttendanceLogView({ store }: { store: any }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Members</SelectItem>
-                {workspaceMembers.map((m: any) => (
+                {workspaceMembers.map((m) => (
                   <SelectItem key={m.userId} value={m.userId}>
                     {m.displayName}
                   </SelectItem>
@@ -212,11 +204,11 @@ export function AttendanceLogView({ store }: { store: any }) {
             </Card>
           ) : (
             <div className="space-y-6">
-              {Object.entries(groupedByDate).map(([dateKey, entries]: [string, any]) => (
+              {Object.entries(groupedByDate).map(([dateKey, entries]) => (
                 <div key={dateKey}>
                   <h3 className="text-lg font-semibold mb-3">{formatDate(dateKey)}</h3>
                   <div className="space-y-2">
-                    {entries.map((entry: any) => (
+                    {entries.map((entry) => (
                       <Card key={entry.id} className="shadow-sm border-none">
                         <CardContent className="p-4">
                           <div className="flex items-center gap-4">
@@ -286,7 +278,7 @@ export function AttendanceLogView({ store }: { store: any }) {
             </Card>
           ) : (
             <div className="space-y-2">
-              {workspaceWorkUpdates.map((update: any) => (
+              {workspaceWorkUpdates.map((update) => (
                 <Card key={update.id} className="shadow-sm border-none">
                   <CardContent className="p-4">
                     <div className="flex items-start gap-4">

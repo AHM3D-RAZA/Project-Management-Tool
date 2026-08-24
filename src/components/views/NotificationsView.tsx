@@ -3,11 +3,11 @@
 
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Bell, UserPlus, Edit, MessageSquare, Circle, Loader2, AtSign } from 'lucide-react';
+import { Bell, UserPlus, Edit, MessageSquare, Loader2, AtSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNotifications } from '@/hooks/use-notifications';
 import { formatDistanceToNow } from 'date-fns';
-import { useNexusStore } from '@/hooks/use-nexus-store';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
 const iconMap = {
   task_assigned: <UserPlus className="h-4 w-4 text-blue-500" />,
@@ -16,7 +16,7 @@ const iconMap = {
   mentioned: <AtSign className="h-4 w-4 text-purple-500" />,
 };
 
-export function NotificationsView({ store }: { store: any }) {
+export function NotificationsView({ store }: { store: NexusStore }) {
   const { notifications, isLoading } = useNotifications(50);
   const { markNotificationAsRead } = store;
 
@@ -37,7 +37,7 @@ export function NotificationsView({ store }: { store: any }) {
       <Card className="border-none shadow-sm overflow-hidden bg-card">
         <CardContent className="p-0">
           <div className="divide-y">
-            {notifications.map((notif: any) => (
+            {notifications.map((notif) => (
               <div 
                 key={notif.id} 
                 className={cn(

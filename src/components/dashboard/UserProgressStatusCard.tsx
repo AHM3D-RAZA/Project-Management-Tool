@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  TrendingUp, 
   TrendingDown, 
   Flame, 
   CheckCircle2, 
@@ -16,17 +15,17 @@ import {
   Award
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { Task, CurrentUser } from '@/lib/types';
 
 interface UserProgressStatusCardProps {
-  tasks: any[];
-  currentUser: any;
-  store: any;
+  tasks: Task[];
+  currentUser: CurrentUser | null;
 }
 
 type TimePeriod = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 type StatusLevel = 'below_average' | 'average' | 'above_average' | 'above_and_beyond';
 
-export function UserProgressStatusCard({ tasks, currentUser, store }: UserProgressStatusCardProps) {
+export function UserProgressStatusCard({ tasks, currentUser }: UserProgressStatusCardProps) {
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('monthly');
 
   // Filter tasks based on time period
@@ -49,7 +48,7 @@ export function UserProgressStatusCard({ tasks, currentUser, store }: UserProgre
         break;
     }
     
-    return tasks.filter((task: any) => {
+    return tasks.filter((task) => {
       const taskDate = new Date(task.createdAt || task.updatedAt);
       return taskDate >= startDate && taskDate <= now;
     });
@@ -57,24 +56,24 @@ export function UserProgressStatusCard({ tasks, currentUser, store }: UserProgre
 
   // Calculate metrics
   const metrics = useMemo(() => {
-    const userTasks = filteredTasks.filter((t: any) => 
-      t.assigneeUserIds?.includes(currentUser?.id)
+    const userTasks = filteredTasks.filter((t) => 
+      currentUser ? t.assigneeUserIds?.includes(currentUser.id) : false
     );
     
     const totalAssigned = userTasks.length;
-    const completedTasks = userTasks.filter((t: any) => t.status === 'done');
-    const inProgressTasks = userTasks.filter((t: any) => t.status === 'in_progress');
-    const todoTasks = userTasks.filter((t: any) => t.status === 'todo');
+    const completedTasks = userTasks.filter((t) => t.status === 'done');
+    const inProgressTasks = userTasks.filter((t) => t.status === 'in_progress');
+    const todoTasks = userTasks.filter((t) => t.status === 'todo');
     
-    const completedInProgress = inProgressTasks.filter((t: any) => t.status === 'done').length;
+    const completedInProgress = inProgressTasks.filter((t) => t.status === 'done').length;
     const allInProgressCompleted = inProgressTasks.length > 0 && completedInProgress === inProgressTasks.length;
     
-    const completedTodo = todoTasks.filter((t: any) => t.status === 'done').length;
+    const completedTodo = todoTasks.filter((t) => t.status === 'done').length;
     const allTodoCompleted = todoTasks.length > 0 && completedTodo === todoTasks.length;
     
     // Calculate on-time completion rate
-    const tasksWithDueDate = completedTasks.filter((t: any) => t.dueDate);
-    const onTimeTasks = tasksWithDueDate.filter((t: any) => {
+    const tasksWithDueDate = completedTasks.filter((t): t is Task & { dueDate: string } => !!t.dueDate);
+    const onTimeTasks = tasksWithDueDate.filter((t) => {
       const dueDate = new Date(t.dueDate);
       const completedAt = new Date(t.updatedAt);
       return completedAt <= dueDate;
@@ -83,8 +82,8 @@ export function UserProgressStatusCard({ tasks, currentUser, store }: UserProgre
     
     // Calculate streak (consecutive tasks completed on or ahead of time)
     const sortedCompleted = [...completedTasks]
-      .filter((t: any) => t.dueDate)
-      .sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      .filter((t): t is Task & { dueDate: string } => !!t.dueDate)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     
     let currentStreak = 0;
     for (const task of sortedCompleted) {
@@ -110,7 +109,7 @@ export function UserProgressStatusCard({ tasks, currentUser, store }: UserProgre
         done: completedTasks.length,
         in_progress: inProgressTasks.length,
         todo: todoTasks.length,
-        on_hold: userTasks.filter((t: any) => t.status === 'on_hold').length,
+        on_hold: userTasks.filter((t) => t.status === 'on_hold').length,
       },
     };
   }, [filteredTasks, currentUser]);

@@ -9,9 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Loader2, Rocket, Layout, FolderOpen, ListTodo, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
 interface OnboardingFlowProps {
-  store: any;
+  store: NexusStore;
 }
 
 export function OnboardingFlow({ store }: OnboardingFlowProps) {
@@ -47,7 +48,7 @@ export function OnboardingFlow({ store }: OnboardingFlowProps) {
           title: taskTitle.trim(),
           status: 'todo',
           priority: 'medium',
-          assigneeUserId: store.currentUser.id,
+          assigneeUserIds: store.currentUser ? [store.currentUser.id] : [],
         });
       }
 
@@ -72,7 +73,7 @@ export function OnboardingFlow({ store }: OnboardingFlowProps) {
             <Rocket className="w-6 h-6" />
           </div>
           <h1 className="text-3xl font-bold font-headline">Welcome to PSF Project Tracker</h1>
-          <p className="text-muted-foreground">Let's set up your first workspace to get you started.</p>
+          <p className="text-muted-foreground">Let&apos;s set up your first workspace to get you started.</p>
         </div>
 
         <div className="flex justify-between max-w-xs mx-auto mb-4">
@@ -165,7 +166,7 @@ export function OnboardingFlow({ store }: OnboardingFlowProps) {
                     autoFocus
                   />
                 </div>
-                <p className="text-xs text-muted-foreground italic">You can add more tasks, assignees, and deadlines once you're on the dashboard.</p>
+                <p className="text-xs text-muted-foreground italic">You can add more tasks, assignees, and deadlines once you&apos;re on the dashboard.</p>
               </div>
             )}
           </CardContent>

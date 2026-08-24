@@ -18,6 +18,9 @@ type ToasterToast = ToastProps & {
   action?: ToastActionElement
 }
 
+// actionTypes exists only to derive the ActionType type below via typeof —
+// the object itself is never read at runtime. Standard shadcn/ui pattern.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
   UPDATE_TOAST: "UPDATE_TOAST",

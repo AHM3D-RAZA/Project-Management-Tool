@@ -28,7 +28,7 @@ export function useNotifications(max: number = 50) {
     }
     
     // Guard 3: No user
-    if (!user) {
+    if (!user?.uid) {
       console.log('[useNotifications] No user, returning null');
       return null;
     }

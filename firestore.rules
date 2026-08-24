@@ -6,57 +6,82 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isWorkspaceAdmin(workspaceId) {
-      let ws = get(/databases/$(database)/documents/workspaces/$(workspaceId));
-      let isOwner = ws.data.ownerUserId == request.auth.uid;
-      let isLead = ws.data.memberRoles[request.auth.uid] == 'lead';
-      return isOwner || isLead;
+    function getWorkspace(workspaceId) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId));
     }
 
-    // --- NOTIFICATIONS RULES (FIXED) ---
+    // True for the workspace owner, or anyone present in memberRoles (any role).
+    function isWorkspaceMember(workspaceId) {
+      let ws = getWorkspace(workspaceId);
+      return isSignedIn() &&
+        (ws.data.ownerUserId == request.auth.uid || request.auth.uid in ws.data.memberRoles);
+    }
+
+    function isWorkspaceAdmin(workspaceId) {
+      let ws = getWorkspace(workspaceId);
+      let isOwner = ws.data.ownerUserId == request.auth.uid;
+      let isLead = ws.data.memberRoles[request.auth.uid] == 'lead';
+      return isSignedIn() && (isOwner || isLead);
+    }
+
+    function isWorkspaceOwner(workspaceId) {
+      let ws = getWorkspace(workspaceId);
+      return isSignedIn() && ws.data.ownerUserId == request.auth.uid;
+    }
+
+    // A user accepting an invite writes their own uid into memberRoles as
+    // 'member' or 'lead' (never 'owner') and cannot touch anything else on
+    // the workspace doc. This is the ONLY way a non-admin may update a
+    // workspace document.
+    function isAcceptingInvite(workspaceId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changedKeys = after.diff(before).affectedKeys();
+      let memberRoleChanges = after.memberRoles.diff(before.memberRoles).affectedKeys();
+      return isSignedIn()
+        && !(request.auth.uid in before.memberRoles)
+        && (after.memberRoles[request.auth.uid] == 'member' || after.memberRoles[request.auth.uid] == 'lead')
+        && changedKeys.hasOnly(['memberRoles', 'updatedAt'])
+        // only the caller's own key inside memberRoles may change — no one
+        // else's role can be touched in the same write.
+        && memberRoleChanges.hasOnly([request.auth.uid]);
+    }
+
+    // A user accepting an email invite to specific/all projects adds only
+    // their own uid to a project's allowedUserIds and changes nothing else.
+    function isSelfGrantingProjectAccess(workspaceId) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changedKeys = after.diff(before).affectedKeys();
+      return isSignedIn()
+        && isWorkspaceMember(workspaceId)
+        && changedKeys.hasOnly(['allowedUserIds'])
+        && request.auth.uid in after.allowedUserIds
+        && after.allowedUserIds.removeAll([request.auth.uid]) == (before.allowedUserIds != null ? before.allowedUserIds.removeAll([request.auth.uid]) : []);
+    }
+
     match /notifications/{notificationId} {
       // Read: user can only read their own notifications
-      // For LIST queries: Firestore will verify the query includes userId filter
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      
+
       // Create: actor must be the authenticated user
-      allow create: if isSignedIn() && 
+      allow create: if isSignedIn() &&
                     request.resource.data.actorId == request.auth.uid &&
                     request.resource.data.userId is string;
-      
+
       // Update/Delete: only the recipient can do this
       allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
-    // --- COLLECTION GROUP RULES ---
-    
-    match /{path=**}/tasks/{taskId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /{path=**}/comments/{commentId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /{path=**}/attachments/{attachmentId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /{path=**}/subtasks/{subtaskId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    // Attendance collectionGroup rule - allows querying attendance across all workspaces
-    match /{path=**}/attendance/{attendanceId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
     // --- HIERARCHICAL RULES ---
+    // NOTE: collection-group catch-alls (e.g. `match /{path=**}/tasks/{taskId}`)
+    // were removed. In Firestore, when multiple rule blocks can match the
+    // same document path, they are OR'd together — so a blanket
+    // `allow write: if isSignedIn()` at the wildcard level silently
+    // defeats any stricter rule declared below it. Collection-group
+    // queries (tasks, subtasks, attendance) are still authorized fine
+    // through the hierarchical rules below, because Firestore evaluates
+    // rules by the document's actual path, not by how it was queried.
 
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -64,84 +89,157 @@ service cloud.firestore {
     }
 
     match /workspaces/{workspaceId} {
-      allow read, create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn() && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUserId == request.auth.uid;
+      allow read: if isWorkspaceMember(workspaceId);
+      allow create: if isSignedIn()
+                    && request.resource.data.ownerUserId == request.auth.uid
+                    && request.resource.data.memberRoles[request.auth.uid] == 'owner';
+      allow update: if isWorkspaceAdmin(workspaceId) || isAcceptingInvite(workspaceId);
+      allow delete: if isWorkspaceOwner(workspaceId);
 
       match /members/{memberUserId} {
-        allow read: if isSignedIn();
-        allow write: if isSignedIn();
+        allow read: if isWorkspaceMember(workspaceId);
+        // Admins can manage any member doc; a user can always write their own.
+        allow write: if isWorkspaceAdmin(workspaceId) || request.auth.uid == memberUserId;
       }
 
       match /audit_logs/{logId} {
-        allow read: if isSignedIn() && isWorkspaceAdmin(workspaceId);
-        allow create: if isSignedIn() && isWorkspaceAdmin(workspaceId)
+        allow read: if isWorkspaceAdmin(workspaceId);
+        allow create: if isWorkspaceAdmin(workspaceId)
                       && request.resource.data.actorId == request.auth.uid;
-        allow update, delete: if false;
+        allow update: if false;
+        // Delete is otherwise never allowed (audit trail is meant to be
+        // immutable) — the sole exception is the workspace owner tearing
+        // down the whole workspace, since an audit trail for a workspace
+        // that no longer exists serves no purpose and would otherwise
+        // become a permanently unreadable orphan (isWorkspaceAdmin can
+        // never evaluate true again once the parent workspace doc is gone).
+        allow delete: if isWorkspaceOwner(workspaceId);
       }
 
       match /custom_statuses/{statusId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn() && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUserId == request.auth.uid;
-        allow update, delete: if isSignedIn() && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUserId == request.auth.uid;
+        allow read: if isWorkspaceMember(workspaceId);
+        allow create, update, delete: if isWorkspaceOwner(workspaceId);
       }
 
       match /attendance/{attendanceId} {
         // Read: own entry OR workspace admin
-        allow read: if isSignedIn() && 
+        allow read: if isSignedIn() &&
           (request.auth.uid == resource.data.userId || isWorkspaceAdmin(workspaceId));
-        
-        // Create/update: only own entry
-        allow create, update: if isSignedIn() && request.auth.uid == request.resource.data.userId;
-        
-        // Delete: not needed in Phase 1
-        allow delete: if false;
+
+        // Create: only own entry, and must be a workspace member
+        allow create: if isSignedIn()
+          && request.auth.uid == request.resource.data.userId
+          && isWorkspaceMember(workspaceId);
+
+        // Update: only own entry, must be a workspace member, and — when
+        // this update is the one setting checkOutTime for the first time —
+        // the 8-hour minimum is enforced using the server-authoritative
+        // checkInServerTime, not the client-supplied checkInTime string
+        // (which a skewed device clock could manipulate). Records written
+        // before checkInServerTime existed are grandfathered through
+        // rather than being permanently unable to check out.
+        allow update: if isSignedIn()
+          && request.auth.uid == request.resource.data.userId
+          && isWorkspaceMember(workspaceId)
+          && (
+            !(resource.data.checkOutTime == null && request.resource.data.checkOutTime != null)
+            || !('checkInServerTime' in resource.data)
+            || request.time >= resource.data.checkInServerTime + duration.value(8, 'h')
+          );
+
+        // Delete: two cases —
+        //  1. A user undoing their own accidental check-in: own entry
+        //     only, still open (no checkOutTime), within 5 minutes of the
+        //     check-in itself — verified against the server-authoritative
+        //     checkInServerTime, not the client-supplied checkInTime
+        //     (which a skewed device clock could stretch or shrink). A
+        //     misclick-correction window, not a way to dodge the 8-hour
+        //     minimum after actually starting work.
+        //  2. The workspace owner tearing down the entire workspace, which
+        //     needs to clear every member's attendance entries, not just
+        //     their own.
+        allow delete: if isSignedIn() && (
+          isWorkspaceOwner(workspaceId) ||
+          (
+            request.auth.uid == resource.data.userId
+            && resource.data.checkOutTime == null
+            && 'checkInServerTime' in resource.data
+            && request.time < resource.data.checkInServerTime + duration.value(5, 'm')
+          )
+        );
       }
 
       match /work_updates/{updateId} {
         // Read: own update OR workspace admin
-        allow read: if isSignedIn() && 
+        allow read: if isSignedIn() &&
           (request.auth.uid == resource.data.userId || isWorkspaceAdmin(workspaceId));
-        
-        // Create: only own update
-        allow create: if isSignedIn() && request.auth.uid == request.resource.data.userId;
-        
-        // Update/Delete: not needed
-        allow update, delete: if false;
+
+        // Create: only own update, and must be a workspace member
+        allow create: if isSignedIn()
+          && request.auth.uid == request.resource.data.userId
+          && isWorkspaceMember(workspaceId);
+
+        // Update: never needed. Delete: same reasoning as audit_logs —
+        // only the workspace owner, only for cascade teardown of the
+        // whole workspace.
+        allow update: if false;
+        allow delete: if isWorkspaceOwner(workspaceId);
       }
 
       match /projects/{projectId} {
-        allow read: if isSignedIn();
+        allow read: if isWorkspaceMember(workspaceId);
         allow create: if isWorkspaceAdmin(workspaceId);
-        allow update, delete: if isWorkspaceAdmin(workspaceId);
+        allow update: if isWorkspaceAdmin(workspaceId) || isSelfGrantingProjectAccess(workspaceId);
+        allow delete: if isWorkspaceAdmin(workspaceId);
 
         match /tasks/{taskId} {
-          allow read: if isSignedIn();
-          allow write: if isSignedIn();
+          allow read: if isWorkspaceMember(workspaceId);
+          allow write: if isWorkspaceMember(workspaceId);
 
           match /subtasks/{subtaskId} {
-            allow read: if isSignedIn();
-            allow write: if isSignedIn();
+            allow read: if isWorkspaceMember(workspaceId);
+            allow write: if isWorkspaceMember(workspaceId);
           }
 
           match /comments/{commentId} {
-            allow read: if isSignedIn();
-            allow write: if isSignedIn();
+            allow read: if isWorkspaceMember(workspaceId);
+            allow write: if isWorkspaceMember(workspaceId);
           }
 
           match /attachments/{attachmentId} {
-            allow read: if isSignedIn();
-            allow write: if isSignedIn();
+            allow read: if isWorkspaceMember(workspaceId);
+            allow write: if isWorkspaceMember(workspaceId);
           }
         }
       }
     }
-    
+
     // --- INVITATIONS ---
     match /invitations/{invitationId} {
-      allow read: if true;
-      allow create: if isSignedIn();
-      allow update, delete: if isSignedIn();
+      // A specific invite can be looked up by its (unguessable) doc ID
+      // before the user is signed in, so the join page can preview it.
+      // `list` (querying the collection) is scoped to members of the
+      // matching workspace only — MembersView lists pending invites
+      // alongside members for everyone in the workspace, but nobody can
+      // enumerate every invitation in the database anymore.
+      allow get: if true;
+      allow list: if isWorkspaceMember(resource.data.workspaceId);
+
+      allow create: if isSignedIn() && isWorkspaceAdmin(request.resource.data.workspaceId);
+
+      // Admins can fully manage an invite. Anyone else may only be
+      // accepting it: usageCount can move up by exactly 1, and status
+      // may only move to 'used' — nothing else on the doc may change.
+      allow update: if isSignedIn() && (
+        isWorkspaceAdmin(resource.data.workspaceId) ||
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usageCount', 'status']) &&
+          request.resource.data.usageCount == resource.data.usageCount + 1 &&
+          (request.resource.data.status == resource.data.status || request.resource.data.status == 'used')
+        )
+      );
+
+      allow delete: if isSignedIn() && isWorkspaceAdmin(resource.data.workspaceId);
     }
   }
 }

@@ -21,13 +21,27 @@ import {
   getDocs,
   getDoc,
   limit,
-  serverTimestamp,
   orderBy,
-  addDoc
+  serverTimestamp
 } from 'firebase/firestore';
 import { Workspace, Project, Task, WorkspaceMember, Invitation, Subtask, AttendanceEntry, AuditLog, CustomStatus, StatusConfig, WorkUpdate } from '@/lib/types';
-import { createNotification, notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned } from '@/lib/notifications';
+import { createNotification, notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned, notifyMentioned, notifyMentionedAssignee } from '@/lib/notifications';
 import { sendWorkspaceInviteEmail } from '@/app/actions/send-workspace-invite-email';
+import { deleteWorkspaceCascade, deleteProjectCascade, deleteTaskCascade } from '@/lib/cascade-delete';
+
+// How long a user has to undo an accidental check-in. Must match the
+// duration enforced server-side in firestore.rules.
+const CHECK_IN_GRACE_PERIOD_MS = 5 * 60 * 1000;
+
+// The app's 4 built-in task statuses. Static data — never changes at
+// runtime — so it lives at module scope rather than being recreated on
+// every render of useNexusStore.
+const DEFAULT_STATUSES: StatusConfig[] = [
+  { id: 'todo', name: 'To Do', color: 'bg-slate-200', isDefault: true },
+  { id: 'in_progress', name: 'In Progress', color: 'bg-accent/20', isDefault: true },
+  { id: 'on_hold', name: 'On Hold', color: 'bg-amber-100', isDefault: true },
+  { id: 'done', name: 'Done', color: 'bg-green-100', isDefault: true },
+];
 
 export function useNexusStore() {
   const { user, isAuthReady } = useUser();
@@ -36,12 +50,18 @@ export function useNexusStore() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [isPrefsLoading, setIsPrefsLoading] = useState(true);
+  const [deletionProgress, setDeletionProgress] = useState<{
+    type: 'workspace' | 'project';
+    label: string;
+    count: number;
+  } | null>(null);
 
   useEffect(() => {
     if (isAuthReady && user?.uid && db) {
+      const uid = user.uid;
       const loadUserPrefs = async () => {
         try {
-          const userRef = doc(db, 'users', user.uid);
+          const userRef = doc(db, 'users', uid);
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
             const data = userSnap.data();
@@ -56,7 +76,7 @@ export function useNexusStore() {
         }
       };
       loadUserPrefs();
-    } else if (isAuthReady && !user) {
+    } else if (isAuthReady && !user?.uid) {
       setIsPrefsLoading(false);
     }
   }, [isAuthReady, user?.uid, db]);
@@ -169,7 +189,7 @@ export function useNexusStore() {
       return {
         id: uid,
         userId: uid,
-        role: role as any,
+        role,
         displayName: profile?.displayName || (isMe ? user.displayName : 'Pending Sync...'),
         email: profile?.email || (isMe ? user.email : ''),
         avatarUrl: profile?.avatarUrl || (isMe ? user.photoURL : null),
@@ -185,8 +205,8 @@ export function useNexusStore() {
     );
   }, [db, activeWorkspace]);
 
-  const { data: invitesData } = useCollection(invitesQuery);
-  const workspaceInvitations = useMemo(() => (invitesData || []).filter((i: any) => i.status === 'active'), [invitesData]);
+  const { data: invitesData } = useCollection<Invitation>(invitesQuery);
+  const workspaceInvitations = useMemo(() => (invitesData || []).filter((i) => i.status === 'active'), [invitesData]);
 
   const auditLogsQuery = useMemoFirebase(() => {
     const wsId = activeWorkspace?.id;
@@ -228,14 +248,6 @@ export function useNexusStore() {
   const { data: customStatusesData } = useCollection<CustomStatus>(customStatusesQuery);
   const workspaceCustomStatuses = useMemo(() => customStatusesData || [], [customStatusesData]);
 
-  // Merge default statuses with custom statuses
-  const defaultStatuses: StatusConfig[] = [
-    { id: 'todo', name: 'To Do', color: 'bg-slate-200', isDefault: true },
-    { id: 'in_progress', name: 'In Progress', color: 'bg-accent/20', isDefault: true },
-    { id: 'on_hold', name: 'On Hold', color: 'bg-amber-100', isDefault: true },
-    { id: 'done', name: 'Done', color: 'bg-green-100', isDefault: true },
-  ];
-
   const allStatuses = useMemo((): StatusConfig[] => {
     const customConfigs: StatusConfig[] = workspaceCustomStatuses.map(cs => ({
       id: cs.id,
@@ -243,7 +255,7 @@ export function useNexusStore() {
       color: cs.color,
       isDefault: false,
     }));
-    return [...defaultStatuses, ...customConfigs];
+    return [...DEFAULT_STATUSES, ...customConfigs];
   }, [workspaceCustomStatuses]);
 
   // Helper functions for status operations
@@ -257,9 +269,8 @@ export function useNexusStore() {
   }, [allStatuses]);
 
   const isCompletedStatus = useCallback((statusId: string): boolean => {
-    const lastIndex = allStatuses.length - 1;
-    return allStatuses[lastIndex]?.id === statusId;
-  }, [allStatuses]);
+    return statusId === 'done';
+  }, []);
 
   // Query for all attendance entries in workspace (for admins)
   // Use collectionGroup to get all attendance documents across the workspace
@@ -356,6 +367,7 @@ export function useNexusStore() {
       const ref = doc(db, 'workspaces', openAttendanceEntry.workspaceId, 'attendance', openAttendanceEntry.id);
       updateDocumentNonBlocking(ref, {
         checkOutTime: autoCheckoutTime.toISOString(),
+        checkOutServerTime: serverTimestamp(),
         autoCheckout: true,
         updatedAt: new Date().toISOString(),
       });
@@ -378,7 +390,7 @@ export function useNexusStore() {
         summary,
         timestamp: new Date().toISOString()
       };
-      setDocumentNonBlocking(logRef, logData);
+      setDocumentNonBlocking(logRef, logData, { merge: true });
     } catch (e) {
       console.error('Failed to write audit log', e);
     }
@@ -459,7 +471,7 @@ export function useNexusStore() {
     }
   }, [db, user]);
 
-  const createTask = useCallback(async (wsId: string, projectId: string, data: any) => {
+  const createTask = useCallback(async (wsId: string, projectId: string, data: Partial<Task> & { title: string }) => {
     if (!db || !wsId || !projectId || !user) return null;
     const canCreateTask = await hasWorkspaceAdminAccess(wsId);
     if (!canCreateTask) throw new Error('Only admins can create tasks.');
@@ -513,7 +525,17 @@ export function useNexusStore() {
       // Handle assignment changes for notifications
       const oldAssignees = t.assigneeUserIds || [];
       const newAssignees = data.assigneeUserIds || [];
-      
+
+      // Who's actually assigned to the task after this update — the
+      // freshly-provided list if this call changed assignment, otherwise
+      // the task's existing assignees (data.assigneeUserIds is undefined
+      // for every single-field edit like title/status/priority/dueDate,
+      // which is how every real edit in this app is made — using
+      // newAssignees here would always be [] for those, silently
+      // preventing "task updated" notifications from ever reaching real
+      // assignees).
+      const currentAssignees = data.assigneeUserIds !== undefined ? newAssignees : oldAssignees;
+
       // Notify newly assigned users
       newAssignees.forEach(assigneeId => {
         if (!oldAssignees.includes(assigneeId) && assigneeId !== user.uid) {
@@ -534,7 +556,7 @@ export function useNexusStore() {
       });
       
       // Notify current assignees of task updates
-      newAssignees.forEach(assigneeId => {
+      currentAssignees.forEach(assigneeId => {
         if (assigneeId !== user.uid && changes.length > 0) {
           notifyTaskUpdated(db, assigneeId, { id: user.uid, name: user.displayName || 'User' }, {
             id: t.id,
@@ -545,7 +567,7 @@ export function useNexusStore() {
         }
       });
     }
-  }, [db, allWorkspaceTasks, isAdmin, user]);
+  }, [db, allWorkspaceTasks, isAdmin, user, logAudit]);
 
   const createSubtask = useCallback(async (taskId: string, projectId: string, data: Partial<Subtask>) => {
     const wsId = activeWorkspace?.id;
@@ -654,7 +676,7 @@ export function useNexusStore() {
 
       const inviteRef = doc(collection(db, 'invitations'));
       const expiresAt = null;
-      const maxUses: 'unlimited' = 'unlimited';
+      const maxUses = 'unlimited' as const;
 
       const inviteData: Invitation = {
         id: inviteRef.id,
@@ -748,6 +770,8 @@ export function useNexusStore() {
           });
         }
       }
+
+      logAudit('create', 'member', targetUser.id, `Added "${targetUser.name || targetUser.email || 'Unknown'}" as ${targetRole}`);
     },
     [db, user, activeWorkspace, isAdmin, logAudit]
   );
@@ -766,48 +790,30 @@ export function useNexusStore() {
     if (!ws || ws.ownerUserId !== user.uid) {
       throw new Error('Only workspace owner can delete the workspace.');
     }
-    // Delete all projects and their tasks/subtasks/comments first
+
+    // No audit log entry for this: audit_logs is one of the collections
+    // the cascade below wipes (a trail for a workspace that no longer
+    // exists serves no purpose), and logAudit's write isn't awaited, so it
+    // could race past the cascade and land as a single, permanently
+    // unreadable orphan — exactly the kind of stranded data this fix is
+    // meant to eliminate.
+    setDeletionProgress({ type: 'workspace', label: ws.name, count: 0 });
     try {
-      const projectsCol = collection(db, 'workspaces', workspaceId, 'projects');
-      const projectsSnap = await getDocs(projectsCol);
-      for (const projDoc of projectsSnap.docs) {
-        const projectId = projDoc.id;
-        // Delete all tasks in this project
-        const tasksCol = collection(db, 'workspaces', workspaceId, 'projects', projectId, 'tasks');
-        const tasksSnap = await getDocs(tasksCol);
-        for (const taskDoc of tasksSnap.docs) {
-          const taskId = taskDoc.id;
-          // Delete subtasks
-          const subtasksCol = collection(db, 'workspaces', workspaceId, 'projects', projectId, 'tasks', taskId, 'subtasks');
-          const subtasksSnap = await getDocs(subtasksCol);
-          subtasksSnap.docs.forEach(s => deleteDocumentNonBlocking(s.ref));
-          // Delete comments
-          const commentsCol = collection(db, 'workspaces', workspaceId, 'projects', projectId, 'tasks', taskId, 'comments');
-          const commentsSnap = await getDocs(commentsCol);
-          commentsSnap.docs.forEach(c => deleteDocumentNonBlocking(c.ref));
-          // Delete task
-          deleteDocumentNonBlocking(taskDoc.ref);
-        }
-        // Delete project
-        deleteDocumentNonBlocking(projDoc.ref);
-      }
-      // Delete workspace members
-      const membersCol = collection(db, 'workspaces', workspaceId, 'members');
-      const membersSnap = await getDocs(membersCol);
-      membersSnap.docs.forEach(m => deleteDocumentNonBlocking(m.ref));
-      // Delete the workspace
-      await deleteDocumentNonBlocking(doc(db, 'workspaces', workspaceId));
-      logAudit('delete', 'workspace', workspaceId, 'Deleted workspace');
+      await deleteWorkspaceCascade(db, workspaceId, (delta) => {
+        setDeletionProgress(prev => (prev ? { ...prev, count: prev.count + delta } : prev));
+      });
     } catch (e) {
       console.error("Failed to delete workspace:", e);
       throw e;
+    } finally {
+      setDeletionProgress(null);
     }
-  }, [db, isOwner, user, workspaces, logAudit]);
+  }, [db, isOwner, user, workspaces]);
 
   const updateProject = useCallback(async (projectId: string, data: Partial<Project>) => {
     const wsId = activeWorkspace?.id;
     if (!db || !wsId || !isAdmin || !user) return;
-    const project = projects.find((p: any) => p.id === projectId);
+    const project = projects.find((p) => p.id === projectId);
     const ref = doc(db, 'workspaces', wsId, 'projects', projectId);
     await updateDocumentNonBlocking(ref, { ...data, updatedAt: new Date().toISOString() });
     logAudit('update', 'project', projectId, `Updated project "${project?.name || 'Unknown'}"`);
@@ -816,30 +822,18 @@ export function useNexusStore() {
   const deleteProject = useCallback(async (projectId: string) => {
     const wsId = activeWorkspace?.id;
     if (!db || !wsId || !isAdmin || !user) return;
+    const project = projects.find((p) => p.id === projectId);
+    setDeletionProgress({ type: 'project', label: project?.name || 'project', count: 0 });
     try {
-      // Delete all tasks and their subtasks/comments first
-      const tasksCol = collection(db, 'workspaces', wsId, 'projects', projectId, 'tasks');
-      const tasksSnap = await getDocs(tasksCol);
-      for (const taskDoc of tasksSnap.docs) {
-        const taskId = taskDoc.id;
-        // Delete subtasks
-        const subtasksCol = collection(db, 'workspaces', wsId, 'projects', projectId, 'tasks', taskId, 'subtasks');
-        const subtasksSnap = await getDocs(subtasksCol);
-        subtasksSnap.docs.forEach(s => deleteDocumentNonBlocking(s.ref));
-        // Delete comments
-        const commentsCol = collection(db, 'workspaces', wsId, 'projects', projectId, 'tasks', taskId, 'comments');
-        const commentsSnap = await getDocs(commentsCol);
-        commentsSnap.docs.forEach(c => deleteDocumentNonBlocking(c.ref));
-        // Delete task
-        deleteDocumentNonBlocking(taskDoc.ref);
-      }
-      // Delete the project
-      const project = projects.find((p: any) => p.id === projectId);
-      await deleteDocumentNonBlocking(doc(db, 'workspaces', wsId, 'projects', projectId));
+      await deleteProjectCascade(db, wsId, projectId, (delta) => {
+        setDeletionProgress(prev => (prev ? { ...prev, count: prev.count + delta } : prev));
+      });
       logAudit('delete', 'project', projectId, `Deleted project "${project?.name || 'Unknown'}"`);
     } catch (e) {
       console.error("Failed to delete project:", e);
       throw e;
+    } finally {
+      setDeletionProgress(null);
     }
   }, [db, isAdmin, user, activeWorkspace?.id, projects, logAudit]);
 
@@ -870,6 +864,7 @@ export function useNexusStore() {
       dateKey,
       checkInTime: new Date().toISOString(),
       checkOutTime: null,
+      checkInServerTime: serverTimestamp(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -881,6 +876,37 @@ export function useNexusStore() {
       throw e;
     }
   }, [db, user, activeWorkspace?.id, todayAttendance, openAttendanceEntry, getTodayDateKey]);
+
+  // Undo an accidental check-in. Only allowed within CHECK_IN_GRACE_PERIOD_MS
+  // of the check-in itself and only while it's still open (not checked out) —
+  // this is a misclick-correction window, not a way to dodge the 8-hour
+  // minimum after actually starting work. Enforced both here and, more
+  // importantly, server-side in firestore.rules.
+  const cancelCheckIn = useCallback(async () => {
+    const wsId = activeWorkspace?.id;
+    if (!db || !user?.uid || !wsId) return;
+
+    const entry = openAttendanceEntry;
+    if (!entry?.checkInTime || entry.checkOutTime) {
+      console.log("No open check-in to cancel");
+      return;
+    }
+
+    const checkInTime = new Date(entry.checkInTime);
+    const msSinceCheckIn = new Date().getTime() - checkInTime.getTime();
+    if (msSinceCheckIn > CHECK_IN_GRACE_PERIOD_MS) {
+      throw new Error("The grace period to undo this check-in has passed.");
+    }
+
+    const attendanceRef = doc(db, 'workspaces', entry.workspaceId, 'attendance', entry.id);
+
+    try {
+      await deleteDocumentNonBlocking(attendanceRef);
+    } catch (e) {
+      console.error("Failed to cancel check-in:", e);
+      throw e;
+    }
+  }, [db, user, activeWorkspace?.id, openAttendanceEntry]);
 
   const checkOut = useCallback(async () => {
     const wsId = activeWorkspace?.id;
@@ -911,8 +937,9 @@ export function useNexusStore() {
     const attendanceRef = doc(db, 'workspaces', entryToClose.workspaceId, 'attendance', entryToClose.id);
     
     try {
-      const updateData: any = {
+      const updateData: Partial<AttendanceEntry> = {
         checkOutTime: new Date().toISOString(),
+        checkOutServerTime: serverTimestamp(),
         updatedAt: new Date().toISOString(),
       };
       await updateDocumentNonBlocking(attendanceRef, updateData);
@@ -988,14 +1015,14 @@ export function useNexusStore() {
       createdAt: new Date().toISOString(),
     };
     
-    await setDocumentNonBlocking(workUpdateRef, workUpdateData);
+    await setDocumentNonBlocking(workUpdateRef, workUpdateData, { merge: true });
     logAudit('create', 'work_update', workUpdateRef.id, `Added work update`);
   }, [db, user, activeWorkspace?.id, logAudit]);
 
   return {
     currentUser: user ? { id: user.uid, name: user.displayName || 'User', email: user.email || '', avatarUrl: user.photoURL || null } : null,
     workspaces,
-    activeWorkspace: activeWorkspace || { id: '', name: 'Loading...', color: '#ccc', memberRoles: {}, ownerUserId: '' },
+    activeWorkspace: activeWorkspace || { id: '', name: 'Loading...', description: '', color: '#ccc', memberRoles: {} as Record<string, 'owner' | 'lead' | 'member'>, ownerUserId: '', createdAt: '', updatedAt: '' },
     workspaceProjects: projects,
     activeProject,
     allWorkspaceTasks,
@@ -1073,22 +1100,17 @@ export function useNexusStore() {
     deleteTask: async (taskId: string) => {
       if (!db || !isAdmin) return;
       const t = allWorkspaceTasks.find(x => x.id === taskId);
-      if (t) {
-        const ref = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
-        deleteDocumentNonBlocking(ref);
+      if (!t) return;
+      const taskRef = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
+      try {
+        await deleteTaskCascade(db, taskRef);
         logAudit('delete', 'task', taskId, `Deleted task "${t.title}"`);
-        try {
-          const subtasksCol = collection(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id, 'subtasks');
-          const subtasksSnap = await getDocs(subtasksCol);
-          subtasksSnap.docs.forEach(docSnap => {
-            deleteDocumentNonBlocking(docSnap.ref);
-          });
-        } catch (e) {
-          console.error("Failed to cascade delete subtasks", e);
-        }
+      } catch (e) {
+        console.error("Failed to delete task:", e);
+        throw e;
       }
     },
-    addComment: async (taskId: string, body: string) => {
+    addComment: async (taskId: string, body: string, mentionedUserIds: string[] = []) => {
       if (!db || !user || !taskId) return;
       const task = allWorkspaceTasks.find(t => t.id === taskId);
       if (!task) return;
@@ -1105,24 +1127,43 @@ export function useNexusStore() {
       await setDocumentNonBlocking(commentRef, commentData, { merge: true });
       logAudit('create', 'comment', commentRef.id, `Added comment to task "${task.title}"`);
 
-      // Notify assignees about the comment if they're not the current user
-      if (task.assigneeUserIds && task.assigneeUserIds.length > 0) {
-        task.assigneeUserIds.forEach(assigneeId => {
-          if (assigneeId !== user.uid) {
-            createNotification(db, {
-              userId: assigneeId,
-              actorId: user.uid,
-              actorName: user.displayName || 'User',
-              type: 'comment_added',
-              title: 'New Comment',
-              message: `${user.displayName} commented on "${task.title}"`,
-              workspaceId: task.workspaceId,
-              projectId: task.projectId,
-              taskId: task.id
-            });
-          }
+      const actor = { id: user.uid, name: user.displayName || 'User' };
+      const taskRef = { id: task.id, title: task.title, workspaceId: task.workspaceId, projectId: task.projectId };
+      const commentPreview = body.substring(0, 100) + (body.length > 100 ? '...' : '');
+      const mentionedSet = new Set(mentionedUserIds);
+      const assigneeIds = task.assigneeUserIds || [];
+
+      // One notification per recipient, never two for the same comment:
+      // mentioned + assignee gets the combined message (mention framing
+      // wins, since it's the more specific fact); mentioned-only or
+      // assignee-only get their normal notification.
+      const notifiedUserIds = new Set<string>();
+
+      mentionedSet.forEach(recipientId => {
+        if (recipientId === user.uid || notifiedUserIds.has(recipientId)) return;
+        notifiedUserIds.add(recipientId);
+        if (assigneeIds.includes(recipientId)) {
+          notifyMentionedAssignee(db, recipientId, actor, taskRef, commentPreview);
+        } else {
+          notifyMentioned(db, recipientId, actor, taskRef, commentPreview);
+        }
+      });
+
+      assigneeIds.forEach(assigneeId => {
+        if (assigneeId === user.uid || notifiedUserIds.has(assigneeId)) return;
+        notifiedUserIds.add(assigneeId);
+        createNotification(db, {
+          userId: assigneeId,
+          actorId: user.uid,
+          actorName: user.displayName || 'User',
+          type: 'comment_added',
+          title: 'New Comment',
+          message: `${user.displayName} commented on "${task.title}"`,
+          workspaceId: task.workspaceId,
+          projectId: task.projectId,
+          taskId: task.id
         });
-      }
+      });
     },
     updateComment: async (taskId: string, commentId: string, body: string) => {
       if (!db || !user || !taskId || !commentId) return;
@@ -1182,6 +1223,54 @@ export function useNexusStore() {
       const member = workspaceMembers.find(m => m.userId === userId);
       const memberRef = doc(db, 'workspaces', wsId, 'members', userId);
       await deleteDocumentNonBlocking(memberRef);
+
+      // Clean up ghost references to the removed member: unassign them
+      // from any task/subtask in this workspace, and drop them from any
+      // restricted project's access list. Best-effort — the member has
+      // already been removed successfully above, so a failure here is
+      // logged but doesn't get reported as "removing the member failed".
+      try {
+        const tasksQuery = query(
+          collectionGroup(db, 'tasks'),
+          where('workspaceId', '==', wsId),
+          where('assigneeUserIds', 'array-contains', userId)
+        );
+        const tasksSnap = await getDocs(tasksQuery);
+        for (const taskDoc of tasksSnap.docs) {
+          const data = taskDoc.data() as Task;
+          const updatedAssignees = (data.assigneeUserIds || []).filter(id => id !== userId);
+          await updateDocumentNonBlocking(taskDoc.ref, {
+            assigneeUserIds: updatedAssignees,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        const subtasksQuery = query(
+          collectionGroup(db, 'subtasks'),
+          where('workspaceId', '==', wsId),
+          where('assigneeUserId', '==', userId)
+        );
+        const subtasksSnap = await getDocs(subtasksQuery);
+        for (const subtaskDoc of subtasksSnap.docs) {
+          await updateDocumentNonBlocking(subtaskDoc.ref, {
+            assigneeUserId: null,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        for (const proj of projects) {
+          if (proj.allowedUserIds?.includes(userId)) {
+            const projRef = doc(db, 'workspaces', wsId, 'projects', proj.id);
+            await updateDocumentNonBlocking(projRef, {
+              allowedUserIds: proj.allowedUserIds.filter(id => id !== userId),
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
+      } catch (e) {
+        console.error("Failed to clean up references to removed member:", e);
+      }
+
       logAudit('remove', 'member', userId, `Removed member "${member?.displayName || 'Unknown'}" from workspace`);
     },
     updateMemberRole: async (userId: string, newRole: 'member' | 'lead') => {
@@ -1203,5 +1292,14 @@ export function useNexusStore() {
     directAddMember,
     checkIn,
     checkOut,
+    cancelCheckIn,
+    deletionProgress,
   };
 }
+
+/**
+ * The full shape of what useNexusStore() returns. Components that receive
+ * the store as a prop (rather than calling the hook directly) should type
+ * it as `{ store: NexusStore }` instead of `{ store: any }`.
+ */
+export type NexusStore = ReturnType<typeof useNexusStore>;

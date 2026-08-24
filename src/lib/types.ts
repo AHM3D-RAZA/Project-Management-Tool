@@ -47,6 +47,45 @@ export interface WorkspaceMember {
   avatarUrl?: string | null;
 }
 
+/**
+ * The shape of items in useNexusStore's `workspaceMembers` — a WorkspaceMember
+ * profile merged with that user's role from Workspace.memberRoles. Not a
+ * Firestore document itself; it's a derived view-model computed in the store.
+ */
+export interface WorkspaceMemberWithRole {
+  id: string;
+  userId: string;
+  role: 'owner' | 'lead' | 'member';
+  displayName: string | null;
+  email: string | null;
+  avatarUrl?: string | null;
+}
+
+/**
+ * The shape of useNexusStore's `currentUser` — a small view of the signed-in
+ * Firebase user, not a Firestore document. Distinct from WorkspaceMember /
+ * WorkspaceMemberWithRole (different field names: `name` not `displayName`,
+ * no `role`).
+ */
+export interface CurrentUser {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+}
+
+/**
+ * The shape of items in useNexusStore's `searchUsersByEmail` results —
+ * matches directAddMember's targetUser param, since results are meant to be
+ * passed straight into it.
+ */
+export interface SearchedUser {
+  id: string;
+  name?: string;
+  email?: string;
+  avatarUrl?: string | null;
+}
+
 export interface Project {
   id: string;
   workspaceId: string;
@@ -97,6 +136,8 @@ export interface Comment {
   authorUserId: string;
   body: string;
   createdAt: string;
+  updatedAt?: string;
+  isEdited?: boolean;
 }
 
 export interface Attachment {
@@ -155,8 +196,15 @@ export interface AttendanceEntry {
   workspaceId: string;
   userId: string;
   dateKey: string; // YYYY-MM-DD
-  checkInTime: string; // ISO timestamp
-  checkOutTime: string | null; // ISO timestamp, null until checkout
+  checkInTime: string; // ISO timestamp (client clock) — used for display
+  checkOutTime: string | null; // ISO timestamp (client clock), null until checkout — used for display
+  // Server-authoritative timestamps, set via Firestore's serverTimestamp().
+  // Used only by firestore.rules for time-based checks (the check-in undo
+  // window, the minimum-hours-before-checkout rule) — the UI never reads
+  // these, so a skewed device clock can't be used to game either rule.
+  // Optional: records written before this field existed won't have it.
+  checkInServerTime?: unknown;
+  checkOutServerTime?: unknown;
   autoCheckout?: boolean; // true when system auto-checked-out after 12h
   createdAt: string;
   updatedAt: string;
@@ -177,7 +225,7 @@ export interface AuditLog {
   actorId: string;
   actorRole: 'owner' | 'lead';
   action: 'update' | 'delete' | 'create' | 'revoke' | 'remove';
-  entityType: 'project' | 'task' | 'workspace' | 'member' | 'invitation' | 'subtask' | 'comment' | 'custom_status' | 'attachment';
+  entityType: 'project' | 'task' | 'workspace' | 'member' | 'invitation' | 'subtask' | 'comment' | 'custom_status' | 'attachment' | 'work_update';
   entityId: string;
   summary: string;
   timestamp: string;

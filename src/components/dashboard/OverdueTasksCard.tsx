@@ -4,10 +4,11 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle, Calendar } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import type { Task, Project } from '@/lib/types';
 
 interface OverdueTasksCardProps {
-  tasks: any[];
-  workspaceProjects: any[];
+  tasks: Task[];
+  workspaceProjects: Project[];
   onTaskClick: (taskId: string) => void;
   onNavigateToProject: (projectId: string) => void;
 }
@@ -46,9 +47,9 @@ export function OverdueTasksCard({
           </div>
         ) : (
           <div className="space-y-3">
-            {tasks.map((task: any) => {
-              const daysOverdue = getDaysOverdue(task.dueDate);
-              const project = workspaceProjects.find((p: any) => p.id === task.projectId);
+            {tasks.map((task) => {
+              const daysOverdue = task.dueDate ? getDaysOverdue(task.dueDate) : 0;
+              const project = workspaceProjects.find((p) => p.id === task.projectId);
               
               return (
                 <div
@@ -82,7 +83,7 @@ export function OverdueTasksCard({
                         </span>
                       </div>
                       <span className="text-[10px] text-muted-foreground">
-                        {new Date(task.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        {task.dueDate && new Date(task.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                       </span>
                     </div>
                   </div>

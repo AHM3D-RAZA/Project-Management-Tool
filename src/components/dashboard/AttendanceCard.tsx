@@ -7,14 +7,20 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Clock, LogIn, LogOut, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { WorkUpdateModal } from '@/components/attendance/WorkUpdateModal';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
-export function AttendanceCard({ store }: { store: any }) {
+// Must match CHECK_IN_GRACE_PERIOD_MS in use-nexus-store.ts / the 5m window
+// enforced server-side in firestore.rules.
+const CHECK_IN_GRACE_PERIOD_MS = 5 * 60 * 1000;
+
+export function AttendanceCard({ store }: { store: NexusStore }) {
   const {
     todayAttendance,
     isAttendanceLoading,
     openAttendanceEntry,
     checkIn,
     checkOut,
+    cancelCheckIn,
     activeWorkspace,
     currentUser,
     saveWorkUpdate
@@ -35,6 +41,18 @@ export function AttendanceCard({ store }: { store: any }) {
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
   }, []);
+
+  // While the undo-check-in grace window is still live, tick faster (every
+  // 5s) so the "Undo check-in" button disappears promptly once it expires
+  // instead of lagging behind by up to a minute.
+  useEffect(() => {
+    if (!openAttendanceEntry?.checkInTime || openAttendanceEntry.checkOutTime) return;
+    const checkInTime = new Date(openAttendanceEntry.checkInTime).getTime();
+    if (Date.now() - checkInTime >= CHECK_IN_GRACE_PERIOD_MS) return;
+
+    const timer = setInterval(() => setNow(new Date()), 5_000);
+    return () => clearInterval(timer);
+  }, [openAttendanceEntry]);
 
   // Request notification permission and set up hourly notifications when checked in
   useEffect(() => {
@@ -70,12 +88,12 @@ export function AttendanceCard({ store }: { store: any }) {
     try {
       await checkIn();
       toast({ title: 'Checked in successfully' });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Check-in error:', error);
       toast({
         variant: 'destructive',
         title: 'Check-in failed',
-        description: error?.message || 'Please try again.'
+        description: (error instanceof Error ? error.message : null) || 'Please try again.'
       });
     } finally {
       setIsProcessing(false);
@@ -88,13 +106,31 @@ export function AttendanceCard({ store }: { store: any }) {
     try {
       await checkOut();
       toast({ title: 'Checked out successfully' });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Check-out error:', error);
-      const isDelayError = error.message?.includes('Must wait at least 8 hours');
+      const errorMessage = error instanceof Error ? error.message : null;
+      const isDelayError = errorMessage?.includes('Must wait at least 8 hours');
       toast({
         variant: isDelayError ? 'default' : 'destructive',
         title: isDelayError ? 'Check-out not available yet' : 'Check-out failed',
-        description: error.message || 'Please try again.'
+        description: errorMessage || 'Please try again.'
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCancelCheckIn = async () => {
+    setIsProcessing(true);
+    try {
+      await cancelCheckIn();
+      toast({ title: 'Check-in undone' });
+    } catch (error) {
+      console.error('Cancel check-in error:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Could not undo check-in',
+        description: (error instanceof Error ? error.message : null) || 'Please try again.'
       });
     } finally {
       setIsProcessing(false);
@@ -105,12 +141,12 @@ export function AttendanceCard({ store }: { store: any }) {
     try {
       await saveWorkUpdate(updateText);
       toast({ title: 'Work update saved successfully' });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to save work update:', error);
       toast({
         variant: 'destructive',
         title: 'Failed to save work update',
-        description: error.message || 'Please try again.'
+        description: (error instanceof Error ? error.message : null) || 'Please try again.'
       });
       throw error;
     }
@@ -134,12 +170,15 @@ export function AttendanceCard({ store }: { store: any }) {
   // Calculate if 8 hours have passed natively
   let canCheckOut = false;
   let remainingHoursDisplay = '';
+  let canCancelCheckIn = false;
   
   if (activeEntry?.checkInTime) {
     const checkInTime = new Date(activeEntry.checkInTime);
     // getTime() returns purely milliseconds so we find the time difference natively 
     const msSinceCheckIn = now.getTime() - checkInTime.getTime();
     const hoursSinceCheckIn = msSinceCheckIn / (1000 * 60 * 60);
+
+    canCancelCheckIn = msSinceCheckIn < CHECK_IN_GRACE_PERIOD_MS;
 
     if (hoursSinceCheckIn >= 8) {
       canCheckOut = true;
@@ -154,7 +193,7 @@ export function AttendanceCard({ store }: { store: any }) {
     }
   }
 
-  const formatTime = (isoString: string) => {
+  const formatTime = (isoString: string | null | undefined) => {
     if (!mounted || !isoString) return '';
     const date = new Date(isoString);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -236,6 +275,17 @@ export function AttendanceCard({ store }: { store: any }) {
                   <p className="text-[10px] text-center text-muted-foreground w-full">
                     Available in {remainingHoursDisplay}
                   </p>
+                )}
+                {canCancelCheckIn && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="w-full text-xs text-muted-foreground h-7"
+                    onClick={handleCancelCheckIn}
+                    disabled={isProcessing}
+                  >
+                    Checked in by mistake? Undo
+                  </Button>
                 )}
               </div>
             )}

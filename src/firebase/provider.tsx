@@ -99,11 +99,32 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
                 updatedAt: new Date().toISOString(),
                 lastActiveWorkspaceId: null
               }, { merge: true });
+            } else {
+              // Keep identity fields in sync with Firebase Auth on every
+              // sign-in. This doc backs searchUsersByEmail (used when
+              // inviting members directly), and since it was previously
+              // only ever written once at first sign-in, a user who later
+              // changed their email in Firebase Auth would become
+              // permanently unfindable under the new address — this doc
+              // would keep matching only the original one forever.
+              const existing = userSnap.data();
+              const newEmail = firebaseUser.email?.toLowerCase() || '';
+              const newName = firebaseUser.displayName || 'User';
+              const newAvatar = firebaseUser.photoURL || null;
+              if (existing.email !== newEmail || existing.name !== newName || existing.avatarUrl !== newAvatar) {
+                await setDoc(userRef, {
+                  name: newName,
+                  email: newEmail,
+                  avatarUrl: newAvatar,
+                  updatedAt: new Date().toISOString(),
+                }, { merge: true });
+              }
             }
             
             setUserAuthState({ user: firebaseUser, isUserLoading: false, isAuthReady: true, userError: null });
-          } catch (error: any) {
+          } catch (error) {
             // Even if doc creation fails (e.g. offline), we consider auth ready if the user exists
+            console.error('[FirebaseProvider] Failed to create/update user doc:', error);
             setUserAuthState({ user: firebaseUser, isUserLoading: false, isAuthReady: true, userError: null });
           }
         } else {
@@ -189,6 +210,13 @@ type MemoFirebase <T> = T & {__memo?: boolean};
  * Utility to memoize Firebase references and queries for use with hooks.
  */
 export function useMemoFirebase<T>(factory: () => T, deps: DependencyList): T | (MemoFirebase<T>) {
+  // This warning is inherent to being a generic pass-through wrapper:
+  // useMemoFirebase forwards whatever factory/deps each caller supplies, so
+  // there's nothing here for the linter to verify — the real checking
+  // happens at each call site instead (enabled via the `additionalHooks`
+  // option in eslint.config.mjs, which treats every useMemoFirebase(...)
+  // call across the codebase as a real useMemo for dependency checking).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const memoized = useMemo(factory, deps);
   
   if(typeof memoized !== 'object' || memoized === null) return memoized;

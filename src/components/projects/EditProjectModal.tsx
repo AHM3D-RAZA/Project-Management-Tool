@@ -15,12 +15,14 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Pencil, Loader2 } from 'lucide-react';
+import type { NexusStore } from '@/hooks/use-nexus-store';
+import type { Project } from '@/lib/types';
 
 interface EditProjectModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  store: any;
-  project: any;
+  store: NexusStore;
+  project: Project | null | undefined;
 }
 
 export function EditProjectModal({
@@ -68,11 +70,11 @@ export function EditProjectModal({
         description: 'Changes have been saved successfully.',
       });
       onOpenChange(false);
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Failed to update project',
-        description: error.message || 'Please try again.',
+        description: (error instanceof Error ? error.message : null) || 'Please try again.',
       });
     } finally {
       setIsSaving(false);

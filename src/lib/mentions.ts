@@ -10,33 +10,61 @@ export interface Mention {
 }
 
 /**
- * Parse @mentions from text
- * Matches @username or @displayName patterns
+ * Parse @mentions from text.
+ *
+ * Scans for literal '@' characters and checks whether the text immediately
+ * following starts with a real member's exact display name — checking
+ * longest names first, so "John Smith" is preferred over a shorter "John"
+ * when both could match at the same position. This is deliberately NOT a
+ * \w+ regex: that would stop at the first space, truncating any multi-word
+ * name (the common case for real people) to just its first word, and a
+ * same-first-word member later in the list could then absorb a mention
+ * that was actually meant for someone else.
  */
 export function parseMentions(text: string, workspaceMembers: Array<{ userId: string; displayName: string }>): Mention[] {
   const mentions: Mention[] = [];
-  const mentionRegex = /@(\w+)/g;
-  let match;
 
-  while ((match = mentionRegex.exec(text)) !== null) {
-    const mentionText = match[1];
-    const startIndex = match.index;
-    const endIndex = match.index + match[0].length;
+  // Longest display name first, so "John Smith" wins over "John" when the
+  // text starts with the longer name.
+  const candidates = [...workspaceMembers].sort((a, b) => b.displayName.length - a.displayName.length);
 
-    // Find matching member
-    const member = workspaceMembers.find(
-      (m) =>
-        m.displayName.toLowerCase().includes(mentionText.toLowerCase()) ||
-        m.displayName.replace(/\s+/g, '').toLowerCase() === mentionText.toLowerCase()
-    );
+  let searchIndex = 0;
+  while (searchIndex < text.length) {
+    const atIndex = text.indexOf('@', searchIndex);
+    if (atIndex === -1) break;
 
-    if (member) {
+    const remainder = text.slice(atIndex + 1);
+    const remainderLower = remainder.toLowerCase();
+
+    // Primary: the text starts with a real display name exactly as
+    // inserted (spaces and all) — this is what replaceMention produces
+    // when a name is selected from the dropdown.
+    let member = candidates.find((m) => remainderLower.startsWith(m.displayName.toLowerCase()));
+    let matchedLength = member?.displayName.length ?? 0;
+
+    // Fallback: a manually-typed mention with no spaces (e.g. "@JohnSmith"
+    // for "John Smith"). Bounded to the contiguous word-like run right
+    // after '@', compared as an exact match against each candidate's
+    // space-stripped name — not a substring/includes check, so this can't
+    // attach the mention to the wrong person the way a loose match could.
+    if (!member) {
+      const wordRun = remainder.match(/^\w+/)?.[0] ?? '';
+      const wordRunLower = wordRun.toLowerCase();
+      member = candidates.find((m) => m.displayName.replace(/\s+/g, '').toLowerCase() === wordRunLower);
+      matchedLength = wordRun.length;
+    }
+
+    if (member && matchedLength > 0) {
+      const endIndex = atIndex + 1 + matchedLength;
       mentions.push({
         userId: member.userId,
         displayName: member.displayName,
-        startIndex,
+        startIndex: atIndex,
         endIndex,
       });
+      searchIndex = endIndex;
+    } else {
+      searchIndex = atIndex + 1;
     }
   }
 

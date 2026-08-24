@@ -105,3 +105,28 @@ export async function notifyMentioned(
     taskId: task.id,
   });
 }
+
+/**
+ * For a recipient who is BOTH an assignee on the task AND @mentioned in the
+ * new comment — one notification instead of two separate ones (a plain
+ * "comment added" notification would be redundant noise on top of this).
+ */
+export async function notifyMentionedAssignee(
+  db: Firestore,
+  recipientId: string,
+  actor: { id: string; name: string },
+  task: { id: string; title: string; workspaceId: string; projectId: string },
+  commentPreview: string
+) {
+  return createNotification(db, {
+    userId: recipientId,
+    actorId: actor.id,
+    actorName: actor.name,
+    type: 'mentioned',
+    title: 'You were mentioned',
+    message: `${actor.name} mentioned you in a comment on "${task.title}" (a task you're assigned to): ${commentPreview}`,
+    workspaceId: task.workspaceId,
+    projectId: task.projectId,
+    taskId: task.id,
+  });
+}

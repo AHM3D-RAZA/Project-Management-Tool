@@ -50,7 +50,7 @@ const PRESET_COLORS = [
 interface AddStatusModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAddStatus: (name: string, color: string) => Promise<void>;
+  onAddStatus: (name: string, color: string) => Promise<string>;
   existingStatuses: { name: string }[];
 }
 
@@ -91,11 +91,11 @@ export function AddStatusModal({ open, onOpenChange, onAddStatus, existingStatus
       toast({
         title: 'Status added successfully',
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Failed to add status',
-        description: error.message || 'Please try again.',
+        description: (error instanceof Error ? error.message : null) || 'Please try again.',
       });
     } finally {
       setIsSubmitting(false);

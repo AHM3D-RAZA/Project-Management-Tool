@@ -4,6 +4,92 @@
  * Tokens are kept in memory only, never stored in Firestore
  */
 
+/**
+ * Minimal type declarations for the subset of Google Identity Services (GIS)
+ * and Google Picker API this file actually calls. Google doesn't publish
+ * official TypeScript types for these — this covers only what's used here,
+ * not the full API surface.
+ */
+interface GoogleOAuthTokenResponse {
+  access_token?: string;
+  error?: string;
+}
+
+interface GoogleOAuthErrorResponse {
+  error?: string;
+}
+
+interface GoogleOAuthTokenClient {
+  requestAccessToken: () => void;
+}
+
+interface GoogleOAuthAccounts {
+  oauth2: {
+    initTokenClient: (config: {
+      client_id: string;
+      scope: string;
+      callback: (response: GoogleOAuthTokenResponse) => void;
+      error_callback: (error: GoogleOAuthErrorResponse) => void;
+    }) => GoogleOAuthTokenClient;
+  };
+}
+
+interface GooglePickerDoc {
+  id: string;
+  name: string;
+  url: string;
+  mimeType: string;
+}
+
+interface GooglePickerCallbackData {
+  action: string;
+  docs?: GooglePickerDoc[];
+}
+
+interface GooglePickerInstance {
+  setVisible: (visible: boolean) => void;
+}
+
+interface GooglePickerBuilder {
+  addView: (viewId: string) => GooglePickerBuilder;
+  setOAuthToken: (token: string) => GooglePickerBuilder;
+  setDeveloperKey: (key: string) => GooglePickerBuilder;
+  setCallback: (callback: (data: GooglePickerCallbackData) => void) => GooglePickerBuilder;
+  build: () => GooglePickerInstance;
+}
+
+interface GooglePickerNamespace {
+  PickerBuilder: new () => GooglePickerBuilder;
+  ViewId: {
+    DOCS: string;
+    SPREADSHEETS: string;
+    PRESENTATIONS: string;
+    FOLDERS: string;
+  };
+  Action: {
+    PICKED: string;
+    CANCEL: string;
+  };
+}
+
+interface GoogleNamespace {
+  accounts: GoogleOAuthAccounts;
+  picker: GooglePickerNamespace;
+}
+
+declare global {
+  interface Window {
+    // Both are optional: they genuinely don't exist until their respective
+    // scripts finish loading (that's what loadGIScript/loadPickerScript
+    // wait for). Everywhere this file accesses them without a further
+    // check, it's after one of those load functions has already resolved.
+    google?: GoogleNamespace;
+    gapi?: {
+      load: (api: string, callback: () => void) => void;
+    };
+  }
+}
+
 export interface DriveFileMetadata {
   id: string;
   name: string;
@@ -23,7 +109,7 @@ export interface PickerResult {
 export function loadGIScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     console.log('[GoogleDrivePicker] Loading GIS script...');
-    if (typeof window !== 'undefined' && (window as any).google) {
+    if (typeof window !== 'undefined' && window.google) {
       console.log('[GoogleDrivePicker] GIS already loaded');
       resolve();
       return;
@@ -51,7 +137,7 @@ export function loadGIScript(): Promise<void> {
 export function loadPickerScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     console.log('[GoogleDrivePicker] Loading Picker script...');
-    if (typeof window !== 'undefined' && (window as any).google?.picker) {
+    if (typeof window !== 'undefined' && window.google?.picker) {
       console.log('[GoogleDrivePicker] Picker already loaded');
       resolve();
       return;
@@ -64,9 +150,9 @@ export function loadPickerScript(): Promise<void> {
     script.onload = () => {
       console.log('[GoogleDrivePicker] gapi script loaded, loading picker API...');
       // Need to explicitly load the picker API using gapi.load()
-      (window as any).gapi.load('picker', () => {
+      window.gapi!.load('picker', () => {
         console.log('[GoogleDrivePicker] Picker API loaded successfully');
-        if ((window as any).google?.picker) {
+        if (window.google?.picker) {
           resolve();
         } else {
           console.error('[GoogleDrivePicker] Picker API not available after load');
@@ -89,10 +175,10 @@ export function loadPickerScript(): Promise<void> {
 export function getOAuthToken(clientId: string): Promise<string> {
   return new Promise((resolve, reject) => {
     console.log('[GoogleDrivePicker] Requesting OAuth token...');
-    const tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
+    const tokenClient = window.google!.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file',
-      callback: (response: any) => {
+      callback: (response) => {
         console.log('[GoogleDrivePicker] OAuth callback received:', response);
         if (response.access_token) {
           console.log('[GoogleDrivePicker] OAuth token received successfully');
@@ -102,7 +188,7 @@ export function getOAuthToken(clientId: string): Promise<string> {
           reject(new Error(response.error || 'Failed to get OAuth token'));
         }
       },
-      error_callback: (error: any) => {
+      error_callback: (error) => {
         console.error('[GoogleDrivePicker] OAuth error callback:', error);
         reject(new Error(error.error || 'OAuth token request failed'));
       },
@@ -123,29 +209,30 @@ export function openGooglePicker(
 ): Promise<PickerResult> {
   return new Promise((resolve, reject) => {
     console.log('[GoogleDrivePicker] Opening Google Picker with view:', viewType);
-    const pickerBuilder = new (window as any).google.picker.PickerBuilder();
+    const picker = window.google!.picker;
+    const pickerBuilder = new picker.PickerBuilder();
     
     // Add views based on viewType
     if (viewType === 'docs') {
-      pickerBuilder.addView((window as any).google.picker.ViewId.DOCS);
+      pickerBuilder.addView(picker.ViewId.DOCS);
     } else if (viewType === 'sheets') {
-      pickerBuilder.addView((window as any).google.picker.ViewId.SPREADSHEETS);
+      pickerBuilder.addView(picker.ViewId.SPREADSHEETS);
     } else {
       // 'all' - add multiple views
       pickerBuilder
-        .addView((window as any).google.picker.ViewId.DOCS)
-        .addView((window as any).google.picker.ViewId.SPREADSHEETS)
-        .addView((window as any).google.picker.ViewId.PRESENTATIONS)
-        .addView((window as any).google.picker.ViewId.FOLDERS);
+        .addView(picker.ViewId.DOCS)
+        .addView(picker.ViewId.SPREADSHEETS)
+        .addView(picker.ViewId.PRESENTATIONS)
+        .addView(picker.ViewId.FOLDERS);
     }
     
-    const picker = pickerBuilder
+    const builtPicker = pickerBuilder
       .setOAuthToken(accessToken)
       .setDeveloperKey(apiKey)
-      .setCallback((data: any) => {
+      .setCallback((data) => {
         console.log('[GoogleDrivePicker] Picker callback received:', data);
-        if (data.action === (window as any).google.picker.Action.PICKED) {
-          const doc = data.docs[0];
+        if (data.action === picker.Action.PICKED) {
+          const doc = data.docs![0];
           const metadata: DriveFileMetadata = {
             id: doc.id,
             name: doc.name,
@@ -154,14 +241,17 @@ export function openGooglePicker(
           };
           console.log('[GoogleDrivePicker] File picked:', metadata);
           resolve({ action: 'picked', metadata });
-        } else if (data.action === (window as any).google.picker.Action.CANCEL) {
+        } else if (data.action === picker.Action.CANCEL) {
           console.log('[GoogleDrivePicker] Picker cancelled');
           resolve({ action: 'cancelled' });
+        } else {
+          console.warn('[GoogleDrivePicker] Unrecognized picker action:', data.action);
+          reject(new Error(`Unrecognized Google Picker action: ${data.action}`));
         }
       })
       .build();
 
-    picker.setVisible(true);
+    builtPicker.setVisible(true);
   });
 }
 

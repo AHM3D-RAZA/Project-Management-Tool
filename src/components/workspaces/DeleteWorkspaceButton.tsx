@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -13,11 +13,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
+import { useToast, toast as toastFn } from '@/hooks/use-toast';
 import { Trash2, Loader2 } from 'lucide-react';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
 interface DeleteWorkspaceButtonProps {
-  store: any;
+  store: NexusStore;
   variant?: 'default' | 'outline' | 'ghost' | 'destructive';
   size?: 'default' | 'sm' | 'lg' | 'icon';
   className?: string;
@@ -36,6 +37,21 @@ export function DeleteWorkspaceButton({
 
   const workspace = store.activeWorkspace;
   const isOwner = store.isOwner;
+  const progressToastRef = useRef<ReturnType<typeof toastFn> | null>(null);
+
+  // Stream live progress from the store into the toast as the cascade
+  // delete runs — items removed so far, updated continuously rather than
+  // leaving the admin staring at "Starting…" for however long a large
+  // workspace takes.
+  useEffect(() => {
+    const progress = store.deletionProgress;
+    if (!progress || progress.type !== 'workspace' || !progressToastRef.current) return;
+    progressToastRef.current.update({
+      id: progressToastRef.current.id,
+      title: 'Deleting workspace…',
+      description: `Removed ${progress.count.toLocaleString()} items so far from "${progress.label}"…`,
+    });
+  }, [store.deletionProgress]);
 
   if (!isOwner || !workspace) {
     return null;
@@ -57,19 +73,28 @@ export function DeleteWorkspaceButton({
     // Close dialog immediately
     setIsOpen(false);
 
+    const progressToast = toast({
+      title: 'Deleting workspace…',
+      description: 'This can take a while for a large workspace. Starting…',
+    });
+    progressToastRef.current = progressToast;
+
     try {
       await store.deleteWorkspace(workspaceId);
-      toast({
+      progressToast.update({
+        id: progressToast.id,
         title: 'Workspace deleted',
         description: 'The workspace and all its data have been removed.',
       });
-    } catch (error: any) {
-      toast({
+    } catch (error) {
+      progressToast.update({
+        id: progressToast.id,
         variant: 'destructive',
         title: 'Failed to delete workspace',
-        description: error.message || 'Please try again.',
+        description: ((error instanceof Error ? error.message : null) || 'Please try again.') + ' You can safely retry — nothing already deleted will be duplicated.',
       });
     } finally {
+      progressToastRef.current = null;
       setIsDeleting(false);
       setConfirmText('');
     }

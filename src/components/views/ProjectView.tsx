@@ -39,12 +39,13 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { Priority } from '@/lib/types';
+import { Priority, StatusConfig } from '@/lib/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
-export function ProjectView({ store }: { store: any }) {
+export function ProjectView({ store }: { store: NexusStore }) {
   const { toast } = useToast();
   const [view, setView] = useState<'list' | 'kanban' | 'calendar'>('list');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -67,7 +68,7 @@ export function ProjectView({ store }: { store: any }) {
     const q = (store.globalSearchQuery || '').trim().toLowerCase();
     if (!q) return store.projectTasks;
 
-    return (store.projectTasks || []).filter((t: any) => {
+    return (store.projectTasks || []).filter((t) => {
       const title = (t.title || '').toLowerCase();
       const tags = (t.tags || []).map((x: string) => x.toLowerCase());
       return title.includes(q) || tags.some((tag: string) => tag.includes(q));
@@ -77,7 +78,7 @@ export function ProjectView({ store }: { store: any }) {
   const eligibleAssignees = useMemo(() => {
     if (!activeProject) return [];
     const allowed = new Set<string>(activeProject.allowedUserIds || []);
-    return (store.workspaceMembers || []).filter((m: any) => {
+    return (store.workspaceMembers || []).filter((m) => {
       const isWorkspaceAdmin = m.role === 'owner' || m.role === 'lead';
       const canSeeProject = isWorkspaceAdmin || allowed.has(m.userId);
       return canSeeProject;
@@ -85,7 +86,7 @@ export function ProjectView({ store }: { store: any }) {
   }, [store.workspaceMembers, activeProject]);
 
   const kanbanColumns = useMemo(() => {
-    return store.allStatuses?.map(s => ({
+    return store.allStatuses?.map((s: StatusConfig) => ({
       id: s.id,
       name: s.name,
       color: s.color,
@@ -109,14 +110,14 @@ export function ProjectView({ store }: { store: any }) {
           status: newTaskStatus,
           priority: newTaskPriority,
           dueDate: newTaskDueDate ? new Date(newTaskDueDate).toISOString() : null,
-          assigneeUserIds: newTaskAssignees.length > 0 ? newTaskAssignees : [store.currentUser?.id],
+          assigneeUserIds: newTaskAssignees.length > 0 ? newTaskAssignees : [store.currentUser?.id].filter((id): id is string => !!id),
           tags: tagsArray,
         });
-      } catch (error: any) {
+      } catch (error) {
         toast({
           variant: 'destructive',
           title: 'Could not create task',
-          description: error?.message || 'Please try again.',
+          description: (error instanceof Error ? error.message : null) || 'Please try again.',
         });
         return;
       }
@@ -134,7 +135,7 @@ export function ProjectView({ store }: { store: any }) {
 
   const handleToggleMember = (userId: string) => {
     if (!activeProject) return;
-    const member = store.workspaceMembers?.find((m: any) => m.userId === userId);
+    const member = store.workspaceMembers?.find((m) => m.userId === userId);
     const isSystemAdmin = member?.role === 'owner' || member?.role === 'lead';
     const isProjectAdmin = Boolean(
       activeProject.createdByUserId && userId === activeProject.createdByUserId
@@ -225,7 +226,7 @@ export function ProjectView({ store }: { store: any }) {
                   <DialogDescription>Assign members who can see this project.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4 max-h-[400px] overflow-y-auto">
-                  {store.workspaceMembers.map((m: any) => {
+                  {store.workspaceMembers.map((m) => {
                     // "Admin" in the Project Team UI:
                     // - Workspace owners/leads are always project admins
                     // - The user who created the project is also treated as an admin for that project
@@ -240,7 +241,7 @@ export function ProjectView({ store }: { store: any }) {
                       <div key={m.userId} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
                         <div className="flex items-center gap-3">
                           <Avatar className="h-8 w-8">
-                            <AvatarImage src={m.avatarUrl} />
+                            <AvatarImage src={m.avatarUrl ?? undefined} />
                             <AvatarFallback>{m.displayName?.charAt(0)}</AvatarFallback>
                           </Avatar>
                           <div className="flex flex-col">
@@ -296,7 +297,7 @@ export function ProjectView({ store }: { store: any }) {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {store.allStatuses?.map((status: any) => (
+                          {store.allStatuses?.map((status) => (
                             <SelectItem key={status.id} value={status.id}>
                               {status.name}
                             </SelectItem>
@@ -336,7 +337,7 @@ export function ProjectView({ store }: { store: any }) {
                     <div className="space-y-2">
                       <Label>Assignees</Label>
                       <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-2">
-                        {eligibleAssignees.map((m: any) => (
+                        {eligibleAssignees.map((m) => (
                           <div key={m.userId} className="flex items-center space-x-2">
                             <Checkbox 
                               id={`assignee-${m.userId}`}
@@ -354,7 +355,7 @@ export function ProjectView({ store }: { store: any }) {
                               className="flex items-center gap-2 cursor-pointer flex-1"
                             >
                               <Avatar className="h-4 w-4">
-                                <AvatarImage src={m.avatarUrl} />
+                                <AvatarImage src={m.avatarUrl ?? undefined} />
                                 <AvatarFallback>{(m.displayName || '?').charAt(0)}</AvatarFallback>
                               </Avatar>
                               <span className="truncate text-sm">{m.displayName || 'Unnamed'}</span>

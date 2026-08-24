@@ -43,14 +43,25 @@ import { generateTaskDescription } from '@/ai/flows/ai-task-description-generati
 import { suggestTaskAttributes } from '@/ai/flows/ai-task-attribute-suggestion';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
-import { useFirestore, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, orderBy } from 'firebase/firestore';
 import { GoogleDrivePickerButton } from './GoogleDrivePickerButton';
 import { GoogleDocsList } from './GoogleDocsList';
-import { DriveFileMetadata, createGoogleFile, pickDriveFile } from '@/lib/google-drive-picker';
+import { DriveFileMetadata } from '@/lib/google-drive-picker';
+import type { Attachment, Comment, Subtask, WorkspaceMemberWithRole, Task } from '@/lib/types';
+import type { NexusStore } from '@/hooks/use-nexus-store';
+
+/**
+ * @mention matching needs a real name to match against — a member with no
+ * displayName can't be usefully @mentioned. Narrows out members missing one
+ * before handing them to parseMentions/renderTextWithMentions/MentionDropdown,
+ * which all require a non-null displayName.
+ */
+function withMentionableNames(members: WorkspaceMemberWithRole[]): Array<{ userId: string; displayName: string; avatarUrl?: string | null }> {
+  return members.filter((m): m is WorkspaceMemberWithRole & { displayName: string } => !!m.displayName);
+}
 import { MentionDropdown } from '@/components/mentions/MentionDropdown';
 import { parseMentions, extractMentionedUserIds, getCurrentMentionQuery, replaceMention, renderTextWithMentions } from '@/lib/mentions';
-import { notifyMentioned } from '@/lib/notifications';
 
 const renderCommentBody = (text: string, workspaceMembers: Array<{ userId: string; displayName: string }> = []) => {
   if (!text) return null;
@@ -122,7 +133,7 @@ const handleKeyDownBullets = (e: React.KeyboardEvent<HTMLTextAreaElement>, value
   }
 };
 
-const generateGoogleCalendarUrl = (task: any) => {
+const generateGoogleCalendarUrl = (task: Pick<Task, 'dueDate' | 'title' | 'description'>) => {
   if (!task.dueDate) return null;
 
   const dueDate = new Date(task.dueDate);
@@ -183,7 +194,13 @@ const getGoogleUrlInfo = (url: string) => {
   return { type: 'Link', icon: Link, color: 'text-muted-foreground' };
 };
 
-function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any) {
+function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: {
+  subtask: Partial<Subtask> & { taskId: string };
+  store: NexusStore;
+  projectMembers: WorkspaceMemberWithRole[];
+  isNew?: boolean;
+  onRemoveNew?: () => void;
+}) {
   const isAdmin = store.isAdmin;
   const [title, setTitle] = useState(subtask.title || '');
   const [description, setDescription] = useState(subtask.description || '');
@@ -191,11 +208,11 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
   useEffect(() => {
     if (isNew) return;
     const timer = setTimeout(() => {
-      let updates: any = {};
+      const updates: Partial<Subtask> = {};
       if (title !== subtask.title) updates.title = title;
       if (description !== (subtask.description || '')) updates.description = description;
 
-      if (Object.keys(updates).length > 0) {
+      if (Object.keys(updates).length > 0 && subtask.id) {
         store.updateSubtask(subtask.taskId, subtask.id, updates);
       }
     }, 500);
@@ -204,20 +221,21 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
 
   const handleSaveNew = () => {
     if (!title.trim()) {
-      onRemoveNew();
-    } else {
+      onRemoveNew?.();
+    } else if (subtask.projectId) {
       store.createSubtask(subtask.taskId, subtask.projectId, { title: title.trim(), description: description.trim(), status: 'todo', priority: 'medium' });
-      onRemoveNew();
+      onRemoveNew?.();
     }
   };
 
   return (
     <div className="group border rounded-lg p-3 space-y-3 bg-card hover:border-border transition-colors relative">
       <div className="flex items-center gap-3">
+        {/* subtask.id! is safe here — see the fuller note further down. */}
         {!isNew && (
           <Checkbox
             checked={subtask.status === 'done'}
-            onCheckedChange={(c) => store.updateSubtask(subtask.taskId, subtask.id, { status: c ? 'done' : 'todo' })}
+            onCheckedChange={(c) => store.updateSubtask(subtask.taskId, subtask.id!, { status: c ? 'done' : 'todo' })}
             disabled={!isAdmin}
           />
         )}
@@ -237,7 +255,7 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
         />
         {!isNew && isAdmin && (
           <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive" onClick={() => {
-            if (confirm("Delete subtask?")) store.deleteSubtask(subtask.taskId, subtask.id);
+            if (confirm("Delete subtask?")) store.deleteSubtask(subtask.taskId, subtask.id!);
           }}>
             <Trash2 className="h-3 w-3" />
           </Button>
@@ -246,7 +264,7 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
 
       <div className="pl-6 pr-8">
          <Input
-            className={cn("h-7 text-xs font-normal bg-transparent border-transparent hover:border-input focus-visible:ring-1 text-muted-foreground", store.isCompletedStatus(subtask.status) && !isNew && "opacity-70")}
+            className={cn("h-7 text-xs font-normal bg-transparent border-transparent hover:border-input focus-visible:ring-1 text-muted-foreground", store.isCompletedStatus(subtask.status || '') && !isNew && "opacity-70")}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Add a description... (optional)"
@@ -260,9 +278,17 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
           />
       </div>
 
+      {/*
+        subtask.id! below: safe non-null assertions, not blind suppressions.
+        subtask.id is optional on the type because the "new subtask"
+        placeholder object doesn't have one yet — but this whole block only
+        renders when !isNew, and every subtask that reaches this branch was
+        loaded from Firestore (via SubtasksTabContent's subtasks.map), so it
+        always has a real id here.
+      */}
       {!isNew && (
         <div className="flex flex-wrap gap-2 items-center pl-6">
-          <Select value={subtask.status} onValueChange={(val) => store.updateSubtask(subtask.taskId, subtask.id, { status: val })} disabled={!isAdmin}>
+          <Select value={subtask.status} onValueChange={(val) => store.updateSubtask(subtask.taskId, subtask.id!, { status: val })} disabled={!isAdmin}>
             <SelectTrigger className="h-6 text-[10px] w-auto border-none bg-muted/50">
               <SelectValue />
             </SelectTrigger>
@@ -274,7 +300,7 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
             </SelectContent>
           </Select>
 
-          <Select value={subtask.priority} onValueChange={(val) => store.updateSubtask(subtask.taskId, subtask.id, { priority: val })} disabled={!isAdmin}>
+          <Select value={subtask.priority} onValueChange={(val) => store.updateSubtask(subtask.taskId, subtask.id!, { priority: val as Task['priority'] })} disabled={!isAdmin}>
             <SelectTrigger className={cn("h-6 text-[10px] w-auto border-none",
               subtask.priority === 'urgent' ? 'bg-red-100 text-red-700' :
                 subtask.priority === 'high' ? 'bg-orange-100 text-orange-700' :
@@ -296,24 +322,24 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
               type="date"
               className="h-6 text-[10px] pl-6 w-auto border-none bg-muted/50"
               value={subtask.dueDate ? subtask.dueDate.split('T')[0] : ''}
-              onChange={(e) => store.updateSubtask(subtask.taskId, subtask.id, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
+              onChange={(e) => store.updateSubtask(subtask.taskId, subtask.id!, { dueDate: e.target.value ? new Date(e.target.value).toISOString() : null })}
               disabled={!isAdmin}
             />
           </div>
 
           <Select 
             value={subtask.assigneeUserId || "unassigned"} 
-            onValueChange={(val) => store.updateSubtask(subtask.taskId, subtask.id, { assigneeUserId: val === "unassigned" ? null : val })} 
+            onValueChange={(val) => store.updateSubtask(subtask.taskId, subtask.id!, { assigneeUserId: val === "unassigned" ? null : val })} 
             disabled={!isAdmin}
           >
             <SelectTrigger className="h-6 text-[10px] w-auto max-w-[120px] border-none bg-muted/50 truncate flex items-center gap-1.5 px-2">
               {subtask.assigneeUserId ? (
                 <div className="flex items-center gap-1 overflow-hidden">
                   <Avatar className="h-4 w-4 shrink-0">
-                    <AvatarImage src={projectMembers.find((m: any) => m.userId === subtask.assigneeUserId)?.avatarUrl} />
-                    <AvatarFallback className="text-[8px]">{projectMembers.find((m: any) => m.userId === subtask.assigneeUserId)?.displayName?.charAt(0) || '?'}</AvatarFallback>
+                    <AvatarImage src={projectMembers.find((m) => m.userId === subtask.assigneeUserId)?.avatarUrl ?? undefined} />
+                    <AvatarFallback className="text-[8px]">{projectMembers.find((m) => m.userId === subtask.assigneeUserId)?.displayName?.charAt(0) || '?'}</AvatarFallback>
                   </Avatar>
-                  <span className="truncate">{projectMembers.find((m: any) => m.userId === subtask.assigneeUserId)?.displayName?.split(' ')[0]}</span>
+                  <span className="truncate">{projectMembers.find((m) => m.userId === subtask.assigneeUserId)?.displayName?.split(' ')[0]}</span>
                 </div>
               ) : (
                 <span className="text-muted-foreground mr-2">Unassigned</span>
@@ -323,11 +349,11 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
               <SelectItem value="unassigned">
                 <span className="text-xs text-muted-foreground">Unassigned</span>
               </SelectItem>
-              {projectMembers.map((m: any) => (
+              {projectMembers.map((m) => (
                 <SelectItem key={m.userId} value={m.userId}>
                   <div className="flex items-center gap-2">
                     <Avatar className="h-4 w-4 shrink-0">
-                      <AvatarImage src={m.avatarUrl} />
+                      <AvatarImage src={m.avatarUrl ?? undefined} />
                       <AvatarFallback className="text-[8px]">{m.displayName?.charAt(0)}</AvatarFallback>
                     </Avatar>
                     <span className="text-xs">{m.displayName}</span>
@@ -342,11 +368,15 @@ function SubtaskRow({ subtask, store, projectMembers, isNew, onRemoveNew }: any)
   );
 }
 
-function SubtasksTabContent({ task, store, projectMembers }: any) {
+function SubtasksTabContent({ task, store, projectMembers }: {
+  task: Task;
+  store: NexusStore;
+  projectMembers: WorkspaceMemberWithRole[];
+}) {
   const [addingNew, setAddingNew] = useState(false);
-  const subtasks = store.allWorkspaceSubtasks?.filter((s: any) => s.taskId === task.id) || [];
+  const subtasks = store.allWorkspaceSubtasks?.filter((s) => s.taskId === task.id) || [];
 
-  const completedCount = subtasks.filter((s: any) => s.status === 'done').length;
+  const completedCount = subtasks.filter((s) => s.status === 'done').length;
   const totalCount = subtasks.length;
   const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
@@ -371,7 +401,7 @@ function SubtasksTabContent({ task, store, projectMembers }: any) {
       )}
 
       <div className="space-y-3">
-        {subtasks.map((st: any) => (
+        {subtasks.map((st) => (
           <SubtaskRow key={st.id} subtask={st} store={store} projectMembers={projectMembers} />
         ))}
         {addingNew && (
@@ -380,6 +410,7 @@ function SubtasksTabContent({ task, store, projectMembers }: any) {
             onRemoveNew={() => setAddingNew(false)}
             subtask={{ taskId: task.id, projectId: task.projectId }}
             store={store}
+            projectMembers={projectMembers}
           />
         )}
       </div>
@@ -396,10 +427,9 @@ export function TaskDetailPanel({
   taskId: string,
   isOpen: boolean,
   onClose: () => void,
-  store: any
+  store: NexusStore
 }) {
   const db = useFirestore();
-  const { user } = useUser();
   const { toast } = useToast();
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
   const [isSuggestingAttrs, setIsSuggestingAttrs] = useState(false);
@@ -427,25 +457,33 @@ export function TaskDetailPanel({
 
   const task = useMemo(() => {
     if (!taskId) return null;
-    return store.allWorkspaceTasks?.find((t: any) => t.id === taskId);
+    return store.allWorkspaceTasks?.find((t) => t.id === taskId);
   }, [taskId, store.allWorkspaceTasks]);
 
+  // Intentionally NOT depending on task.title/task.description here: this
+  // effect resets the local (editable) title/desc state, and should only
+  // do so when switching to a genuinely different task. If it also reacted
+  // to task.title/task.description changing, it would reset the input
+  // mid-typing every time the debounced autosave effects below echo a
+  // just-saved edit back from Firestore — overwriting whatever the user is
+  // currently typing.
   useEffect(() => {
     if (task) {
       setLocalTitle(task.title || '');
       setLocalDesc(task.description || '');
     }
-  }, [task?.id]); // Only true mount/switch resets the input, letting user edit smoothly
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id]);
 
   const taskProject = useMemo(() => {
     if (!task) return null;
-    return store.workspaceProjects?.find((p: any) => p.id === task.projectId) || null;
+    return store.workspaceProjects?.find((p) => p.id === task.projectId) || null;
   }, [task, store.workspaceProjects]);
 
   const eligibleAssignees = useMemo(() => {
     if (!taskProject) return store.workspaceMembers || [];
     const allowed = new Set<string>(taskProject.allowedUserIds || []);
-    return (store.workspaceMembers || []).filter((m: any) => {
+    return (store.workspaceMembers || []).filter((m) => {
       const isWorkspaceAdmin = m.role === 'owner' || m.role === 'lead';
       const canSeeProject = isWorkspaceAdmin || allowed.has(m.userId);
       return canSeeProject;
@@ -460,7 +498,7 @@ export function TaskDetailPanel({
     );
   }, [db, task]);
 
-  const { data: commentsData } = useCollection(commentsQuery);
+  const { data: commentsData } = useCollection<Comment>(commentsQuery);
   const comments = useMemo(() => commentsData || [], [commentsData]);
 
   const attachmentsQuery = useMemoFirebase(() => {
@@ -471,17 +509,52 @@ export function TaskDetailPanel({
     );
   }, [db, task]);
 
-  const { data: attachmentsData } = useCollection(attachmentsQuery);
+  const { data: attachmentsData } = useCollection<Attachment>(attachmentsQuery);
   const attachments = useMemo(() => attachmentsData || [], [attachmentsData]);
-
-  if (!task) return null;
 
   const isAdmin = store.isAdmin;
 
-  const handleUpdate = (field: string, value: any) => {
+  const handleUpdate = (field: string, value: unknown) => {
     if (!isAdmin) return;
-    store.updateTask(taskId, { [field]: value });
+    store.updateTask(taskId, { [field]: value } as Partial<Task>);
   };
+
+  // These two effects were previously declared AFTER the `if (!task) return
+  // null` below, which is a Rules-of-Hooks violation: on any render where
+  // `task` is momentarily null/undefined (e.g. while the tasks collection
+  // is still loading), the early return skips these hooks entirely, but a
+  // later render with `task` populated tries to call them — React would
+  // throw "Rendered more hooks than during the previous render." All hooks
+  // must run unconditionally on every render, so they're declared here,
+  // above the early return, and each guards itself internally instead.
+  // Intentionally NOT depending on handleUpdate here (or in the effect
+  // below): handleUpdate is a plain function recreated on every render of
+  // this component, not a stable useCallback. If it were listed as a
+  // dependency, these debounced-autosave effects would restart their
+  // 500ms timer on every render — not just when the user actually types —
+  // and on a panel that re-renders this often, the save could end up
+  // never actually firing. `mounted` and `task` are safe to omit: by the
+  // time a user could realistically edit the title (localTitle changing),
+  // mounted is already true, and task?.title is already tracked directly.
+  useEffect(() => {
+    if (!mounted || !task) return;
+    const timer = setTimeout(() => {
+      if (localTitle !== task.title) handleUpdate('title', localTitle);
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localTitle, task?.title]);
+
+  useEffect(() => {
+    if (!mounted || !task) return;
+    const timer = setTimeout(() => {
+      if (localDesc !== (task.description || '')) handleUpdate('description', localDesc);
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localDesc, task?.description]);
+
+  if (!task) return null;
 
   const handleAddTag = () => {
     if (newTagValue.trim()) {
@@ -491,22 +564,6 @@ export function TaskDetailPanel({
     setNewTagValue('');
     setIsAddingTag(false);
   };
-
-  useEffect(() => {
-    if (!mounted || !task) return;
-    const timer = setTimeout(() => {
-      if (localTitle !== task.title) handleUpdate('title', localTitle);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [localTitle, task?.title]);
-
-  useEffect(() => {
-    if (!mounted || !task) return;
-    const timer = setTimeout(() => {
-      if (localDesc !== (task.description || '')) handleUpdate('description', localDesc);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [localDesc, task?.description]);
 
   const handleGenerateDescription = async () => {
     if (!isAdmin) return;
@@ -538,31 +595,27 @@ export function TaskDetailPanel({
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!isAdmin) return;
-    store.deleteTask(taskId);
-    onClose();
+    try {
+      await store.deleteTask(taskId);
+      onClose();
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to delete task',
+        description: (error instanceof Error ? error.message : null) || 'Please try again.',
+      });
+    }
   };
 
   const handlePostComment = () => {
     if (newComment.trim()) {
-      const mentions = parseMentions(newComment, eligibleAssignees);
+      const mentions = parseMentions(newComment, withMentionableNames(eligibleAssignees));
       const mentionedUserIds = extractMentionedUserIds(mentions);
-      
-      store.addComment(taskId, newComment.trim());
-      
-      // Send notifications to mentioned users
-      mentionedUserIds.forEach(userId => {
-        if (userId !== store.currentUser?.id) {
-          notifyMentioned(db, userId, { id: store.currentUser?.id || '', name: store.currentUser?.name || 'User' }, {
-            id: task.id,
-            title: task.title,
-            workspaceId: task.workspaceId,
-            projectId: task.projectId
-          }, newComment.trim().substring(0, 100) + (newComment.length > 100 ? '...' : ''));
-        }
-      });
-      
+
+      store.addComment(taskId, newComment.trim(), mentionedUserIds);
+
       setNewComment('');
       setShowMentionDropdown(false);
     }
@@ -755,7 +808,7 @@ export function TaskDetailPanel({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {store.allStatuses?.map((status: any) => (
+                    {store.allStatuses?.map((status) => (
                       <SelectItem key={status.id} value={status.id}>
                         {status.name}
                       </SelectItem>
@@ -822,7 +875,7 @@ export function TaskDetailPanel({
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight">Assignees</Label>
                 <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-2">
-                  {eligibleAssignees.map((m: any) => (
+                  {eligibleAssignees.map((m) => (
                     <div key={m.userId} className="flex items-center space-x-2">
                       <Checkbox 
                         id={`task-assignee-${m.userId}`}
@@ -842,7 +895,7 @@ export function TaskDetailPanel({
                         className="flex items-center gap-2 cursor-pointer flex-1"
                       >
                         <Avatar className="h-5 w-5">
-                          <AvatarImage src={m.avatarUrl} />
+                          <AvatarImage src={m.avatarUrl ?? undefined} />
                           <AvatarFallback>{m.displayName?.charAt(0)}</AvatarFallback>
                         </Avatar>
                         <span className="text-sm">{m.displayName}</span>
@@ -894,7 +947,7 @@ export function TaskDetailPanel({
                     {isAdmin && (
                       <X
                         className="h-3 w-3 cursor-pointer hover:text-destructive"
-                        onClick={() => handleUpdate('tags', task.tags.filter((t: string) => t !== tag))}
+                        onClick={() => handleUpdate('tags', (task.tags || []).filter((t: string) => t !== tag))}
                       />
                     )}
                   </Badge>
@@ -1024,10 +1077,10 @@ export function TaskDetailPanel({
 
               {attachments.length > 0 && (
                 <div className="space-y-2">
-                  {attachments.map((attachment: any) => {
+                  {attachments.map((attachment) => {
                     const urlInfo = getGoogleUrlInfo(attachment.url);
                     const Icon = urlInfo.icon;
-                    const author = store.workspaceMembers.find((m: any) => m.userId === attachment.addedBy);
+                    const author = store.workspaceMembers.find((m) => m.userId === attachment.addedBy);
 
                     return (
                       <div key={attachment.id} className="flex items-center gap-3 p-2 border rounded-lg hover:bg-muted/50 transition-colors group">
@@ -1082,15 +1135,15 @@ export function TaskDetailPanel({
               </Label>
 
               <div className="space-y-4">
-                {comments.map((comment: any) => {
-                  const author = store.workspaceMembers.find((m: any) => m.userId === comment.authorUserId);
+                {comments.map((comment) => {
+                  const author = store.workspaceMembers.find((m) => m.userId === comment.authorUserId);
                   const isCommentAuthor = store.currentUser?.id === comment.authorUserId;
                   const isEditing = editingCommentId === comment.id;
 
                   return (
                     <div key={comment.id} className="flex gap-3 group">
                       <Avatar className="h-8 w-8">
-                        <AvatarImage src={author?.avatarUrl} />
+                        <AvatarImage src={author?.avatarUrl ?? undefined} />
                         <AvatarFallback>{author?.displayName?.charAt(0) || '?'}</AvatarFallback>
                       </Avatar>
                       <div className="flex-1 space-y-1">
@@ -1131,7 +1184,7 @@ export function TaskDetailPanel({
                           </div>
                         ) : (
                           <div className="text-sm bg-muted/40 p-3 rounded-lg border border-transparent hover:border-border transition-colors">
-                            {renderCommentBody(comment.body, store.workspaceMembers)}
+                            {renderCommentBody(comment.body, withMentionableNames(eligibleAssignees))}
                           </div>
                         )}
                       </div>
@@ -1142,7 +1195,7 @@ export function TaskDetailPanel({
 
               <div className="flex items-start gap-3 pt-2 relative">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={store.currentUser?.avatarUrl} />
+                  <AvatarImage src={store.currentUser?.avatarUrl ?? undefined} />
                   <AvatarFallback>{store.currentUser?.name?.charAt(0)}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 space-y-2">
@@ -1175,7 +1228,7 @@ export function TaskDetailPanel({
                 {showMentionDropdown && (
                   <MentionDropdown
                     query={mentionQuery}
-                    members={eligibleAssignees}
+                    members={withMentionableNames(eligibleAssignees)}
                     onSelect={handleMentionSelect}
                     onClose={() => setShowMentionDropdown(false)}
                     position={mentionPosition}

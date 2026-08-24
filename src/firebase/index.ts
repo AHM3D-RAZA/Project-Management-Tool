@@ -39,7 +39,7 @@ export function getSdks(firebaseApp: FirebaseApp) {
     firestore = initializeFirestore(firebaseApp, {
       experimentalForceLongPolling: true,
     });
-  } catch (e) {
+  } catch {
     // If already initialized, getFirestore will return the existing instance
     firestore = getFirestore(firebaseApp);
   }

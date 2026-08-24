@@ -21,7 +21,7 @@ interface NotificationBellProps {
 }
 
 export function NotificationBell({ onNavigateToTask, markAsRead }: NotificationBellProps) {
-  const { notifications, unreadCount, isLoading } = useNotifications(10);
+  const { notifications, unreadCount } = useNotifications(10);
   const [open, setOpen] = useState(false);
 
   const handleNotifClick = (notif: Notification) => {
@@ -67,7 +67,7 @@ export function NotificationBell({ onNavigateToTask, markAsRead }: NotificationB
             <div className="h-60 flex flex-col items-center justify-center text-center p-6 space-y-2 opacity-50">
               <Bell className="h-10 w-10 text-muted-foreground mb-2" />
               <p className="text-sm font-semibold">All caught up!</p>
-              <p className="text-[11px] text-muted-foreground">You don't have any notifications at the moment.</p>
+              <p className="text-[11px] text-muted-foreground">You don&apos;t have any notifications at the moment.</p>
             </div>
           )}
         </ScrollArea>

@@ -23,8 +23,9 @@ import { ProgressTracker } from '@/components/dashboard/ProgressTracker';
 import { OverdueTasksCard } from '@/components/dashboard/OverdueTasksCard';
 import { UserProgressStatusCard } from '@/components/dashboard/UserProgressStatusCard';
 import { TeamProgressStatusCard } from '@/components/dashboard/TeamProgressStatusCard';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
-export function DashboardView({ store, onNavigateToProject }: { store: any, onNavigateToProject: (id: string) => void }) {
+export function DashboardView({ store, onNavigateToProject }: { store: NexusStore, onNavigateToProject: (id: string) => void }) {
   const { allWorkspaceTasks, workspaceProjects, activeWorkspace, isTasksLoading } = store;
   const [mounted, setMounted] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -41,12 +42,12 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
     return {
       totalProjects: workspaceProjects.length,
       totalTasks: tasks.length,
-      doneTasks: tasks.filter((t: any) => t.status === 'done').length,
-      inProgress: tasks.filter((t: any) => t.status === 'in_progress').length,
-      todo: tasks.filter((t: any) => t.status === 'todo').length,
-      onHold: tasks.filter((t: any) => t.status === 'on_hold').length,
-      overdue: tasks.filter((t: any) => t.dueDate && new Date(t.dueDate) < startOfDay && t.status !== 'done').length,
-      urgent: tasks.filter((t: any) => t.priority === 'urgent').length,
+      doneTasks: tasks.filter((t) => t.status === 'done').length,
+      inProgress: tasks.filter((t) => t.status === 'in_progress').length,
+      todo: tasks.filter((t) => t.status === 'todo').length,
+      onHold: tasks.filter((t) => t.status === 'on_hold').length,
+      overdue: tasks.filter((t) => t.dueDate && new Date(t.dueDate) < startOfDay && t.status !== 'done').length,
+      urgent: tasks.filter((t) => t.priority === 'urgent').length,
     };
   }, [allWorkspaceTasks, workspaceProjects.length]);
 
@@ -54,7 +55,7 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
 
   // Sorted list for recent activity
   const recentTasks = useMemo(() => {
-    return [...allWorkspaceTasks].sort((a: any, b: any) => 
+    return [...allWorkspaceTasks].sort((a, b) => 
       new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     ).slice(0, 5);
   }, [allWorkspaceTasks]);
@@ -64,8 +65,8 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     return allWorkspaceTasks
-      .filter((t: any) => t.dueDate && new Date(t.dueDate) < startOfDay && t.status !== 'done')
-      .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+      .filter((t): t is typeof t & { dueDate: string } => !!t.dueDate && new Date(t.dueDate) < startOfDay && t.status !== 'done')
+      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
   }, [allWorkspaceTasks]);
 
   if (isTasksLoading && !allWorkspaceTasks.length) {
@@ -156,7 +157,7 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              {recentTasks.map((task: any) => (
+              {recentTasks.map((task) => (
                 <div key={task.id} className="flex items-start gap-4 group">
                   <div className="mt-1">
                     {task.status === 'done' ? (
@@ -180,7 +181,7 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
                         className="text-xs font-medium underline cursor-pointer hover:text-primary transition-colors"
                         onClick={() => onNavigateToProject(task.projectId)}
                       >
-                        {workspaceProjects.find((p: any) => p.id === task.projectId)?.name || 'Unknown Project'}
+                        {workspaceProjects.find((p) => p.id === task.projectId)?.name || 'Unknown Project'}
                       </span>
                     </div>
                   </div>
@@ -203,7 +204,6 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
           <UserProgressStatusCard 
             tasks={allWorkspaceTasks} 
             currentUser={store.currentUser}
-            store={store}
           />
           <OverdueTasksCard 
             tasks={overdueTasks} 
@@ -221,9 +221,9 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {workspaceProjects.map((project: any) => {
-                const projectTasks = allWorkspaceTasks.filter((t: any) => t.projectId === project.id);
-                const done = projectTasks.filter((t: any) => t.status === 'done').length;
+              {workspaceProjects.map((project) => {
+                const projectTasks = allWorkspaceTasks.filter((t) => t.projectId === project.id);
+                const done = projectTasks.filter((t) => t.status === 'done').length;
                 const total = projectTasks.length;
                 const progress = total > 0 ? (done / total) * 100 : 0;
                 
@@ -257,12 +257,11 @@ export function DashboardView({ store, onNavigateToProject }: { store: any, onNa
       </div>
 
       {/* Team Progress Status - Owner/Lead only */}
-      {(store.isAdmin || store.currentUser?.role === 'owner' || store.currentUser?.role === 'lead') && (
+      {store.isAdmin && (
         <div className="grid grid-cols-1 gap-6">
           <TeamProgressStatusCard 
             tasks={allWorkspaceTasks} 
             workspaceMembers={store.workspaceMembers || []}
-            store={store}
           />
         </div>
       )}

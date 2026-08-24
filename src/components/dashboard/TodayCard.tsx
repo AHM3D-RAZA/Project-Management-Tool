@@ -11,8 +11,9 @@ import {
   Calendar,
   Loader2
 } from 'lucide-react';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
-export function TodayCard({ store, onTaskClick }: { store: any, onTaskClick: (id: string) => void }) {
+export function TodayCard({ store, onTaskClick }: { store: NexusStore, onTaskClick: (id: string) => void }) {
   const { allWorkspaceTasks, workspaceProjects, currentUser, isTasksLoading } = store;
   const [mounted, setMounted] = useState(false);
 
@@ -28,7 +29,7 @@ export function TodayCard({ store, onTaskClick }: { store: any, onTaskClick: (id
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     
-    return allWorkspaceTasks.filter((t: any) => {
+    return allWorkspaceTasks.filter((t) => {
       // Must be assigned to current user
       if (!t.assigneeUserIds?.includes(currentUser.id)) return false;
       
@@ -71,7 +72,7 @@ export function TodayCard({ store, onTaskClick }: { store: any, onTaskClick: (id
             <div className="text-sm text-muted-foreground mb-2">
               {taskCount} task{taskCount !== 1 ? 's' : ''} due today
             </div>
-            {todayTasks.map((task: any) => (
+            {todayTasks.map((task) => (
               <div 
                 key={task.id} 
                 className="flex items-start gap-3 group cursor-pointer hover:bg-muted/50 p-2 rounded-lg transition-colors"
@@ -97,7 +98,7 @@ export function TodayCard({ store, onTaskClick }: { store: any, onTaskClick: (id
                       {task.priority}
                     </Badge>
                     <span className="text-xs text-muted-foreground truncate">
-                      {workspaceProjects.find((p: any) => p.id === task.projectId)?.name || 'Unknown Project'}
+                      {workspaceProjects.find((p) => p.id === task.projectId)?.name || 'Unknown Project'}
                     </span>
                   </div>
                 </div>

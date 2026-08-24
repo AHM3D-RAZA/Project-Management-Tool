@@ -13,7 +13,6 @@ import {
   Bell,
   LogOut,
   Settings,
-  Trash2,
   Clock,
   Shield
 } from 'lucide-react';

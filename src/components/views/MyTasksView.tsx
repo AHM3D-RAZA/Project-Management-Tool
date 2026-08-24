@@ -7,8 +7,9 @@ import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ListTodo, CheckSquare, Loader2, Calendar, LayoutList } from 'lucide-react';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
-export function MyTasksView({ store }: { store: any }) {
+export function MyTasksView({ store }: { store: NexusStore }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'calendar'>('list');
   const { myTasks, isTasksLoading, updateTask } = store;
@@ -17,7 +18,7 @@ export function MyTasksView({ store }: { store: any }) {
     const q = (store.globalSearchQuery || '').trim().toLowerCase();
     if (!q) return myTasks;
 
-    return (myTasks || []).filter((t: any) => {
+    return (myTasks || []).filter((t) => {
       const title = (t.title || '').toLowerCase();
       const tags = (t.tags || []).map((x: string) => x.toLowerCase());
       return title.includes(q) || tags.some((tag: string) => tag.includes(q));
@@ -25,10 +26,10 @@ export function MyTasksView({ store }: { store: any }) {
   }, [myTasks, store.globalSearchQuery]);
 
   const stats = {
-    todo: visibleTasks.filter((t: any) => t.status === 'todo').length,
-    inProgress: visibleTasks.filter((t: any) => t.status === 'in_progress').length,
-    onHold: visibleTasks.filter((t: any) => t.status === 'on_hold').length,
-    done: visibleTasks.filter((t: any) => t.status === 'done').length,
+    todo: visibleTasks.filter((t) => t.status === 'todo').length,
+    inProgress: visibleTasks.filter((t) => t.status === 'in_progress').length,
+    onHold: visibleTasks.filter((t) => t.status === 'on_hold').length,
+    done: visibleTasks.filter((t) => t.status === 'done').length,
   };
 
   return (

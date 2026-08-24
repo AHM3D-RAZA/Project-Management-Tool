@@ -38,7 +38,7 @@ export interface UseDocResult<T> {
  * The Firestore DocumentReference. Waits if null/undefined.
  * @returns {UseDocResult<T>} Object with data, isLoading, error.
  */
-export function useDoc<T = any>(
+export function useDoc<T = unknown>(
   memoizedDocRef: DocumentReference<DocumentData> | null | undefined,
 ): UseDocResult<T> {
   type StateDataType = WithId<T> | null;
@@ -72,6 +72,7 @@ export function useDoc<T = any>(
         setIsLoading(false);
       },
       (error: FirestoreError) => {
+        console.error('[useDoc] Error for:', memoizedDocRef.path, error.message);
         const contextualError = new FirestorePermissionError({
           operation: 'get',
           path: memoizedDocRef.path,

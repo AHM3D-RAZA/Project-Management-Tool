@@ -19,7 +19,8 @@ import {
   updateDoc, 
   increment, 
   setDoc, 
-  serverTimestamp 
+  serverTimestamp,
+  type DocumentReference
 } from 'firebase/firestore';
 import { useFirestore, useAuth } from '@/firebase';
 import { Loader2, AlertCircle, LogIn, CheckCircle2, Users, UserPlus } from 'lucide-react';
@@ -30,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Image from 'next/image';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
+import type { Invitation } from '@/lib/types';
 
 export default function JoinWorkspacePage() {
   const params = useParams();
@@ -42,7 +44,7 @@ export default function JoinWorkspacePage() {
 
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [invitation, setInvitation] = useState<any>(null);
+  const [invitation, setInvitation] = useState<(Invitation & { id: string }) | null>(null);
   const [inviteLoading, setInviteLoading] = useState(true);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
@@ -69,7 +71,7 @@ export default function JoinWorkspacePage() {
     async function fetchInvitation() {
       if (!db || !inviteId) return;
       try {
-        const inviteRef = doc(db, 'invitations', inviteId);
+        const inviteRef = doc(db, 'invitations', inviteId) as DocumentReference<Omit<Invitation, 'id'>>;
         const inviteSnap = await getDoc(inviteRef);
 
         if (!inviteSnap.exists()) {
@@ -99,7 +101,8 @@ export default function JoinWorkspacePage() {
 
         setInvitation({ id: inviteSnap.id, ...data });
         setInviteLoading(false);
-      } catch (error: any) {
+      } catch (error) {
+        console.error('Failed to load invitation:', error);
         setInviteError('Failed to load invitation details');
         setInviteLoading(false);
       }
@@ -115,9 +118,10 @@ export default function JoinWorkspacePage() {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      if (error.code !== 'auth/popup-closed-by-user') {
-        setSignInError(`Sign in failed: ${error.message}`);
+    } catch (error) {
+      const code = error instanceof Error && 'code' in error ? (error as { code?: string }).code : undefined;
+      if (code !== 'auth/popup-closed-by-user') {
+        setSignInError(`Sign in failed: ${error instanceof Error ? error.message : 'Please try again.'}`);
       }
     } finally {
       setSigningIn(false);
@@ -136,8 +140,8 @@ export default function JoinWorkspacePage() {
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
-    } catch (error: any) {
-      setSignInError(error.message);
+    } catch (error) {
+      setSignInError(error instanceof Error ? error.message : 'Please try again.');
     } finally {
       setSigningIn(false);
     }
@@ -233,8 +237,8 @@ export default function JoinWorkspacePage() {
 
       setJoined(true);
       setTimeout(() => router.push('/'), 1500);
-    } catch (error: any) {
-      setInviteError('Failed to join: ' + (error.message || 'Check your permissions.'));
+    } catch (error) {
+      setInviteError('Failed to join: ' + (error instanceof Error ? error.message : 'Check your permissions.'));
     } finally {
       setJoining(false);
     }
@@ -276,7 +280,7 @@ export default function JoinWorkspacePage() {
             <div className="space-y-6">
               {!user ? (
                 <div className="space-y-6">
-                  <Tabs value={authMode} onValueChange={(v: any) => setAuthMode(v)} className="w-full">
+                  <Tabs value={authMode} onValueChange={(v) => setAuthMode(v as 'login' | 'signup')} className="w-full">
                     <TabsList className="grid w-full grid-cols-2">
                       <TabsTrigger value="login">Login</TabsTrigger>
                       <TabsTrigger value="signup">Sign Up</TabsTrigger>

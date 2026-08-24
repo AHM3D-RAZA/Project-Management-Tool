@@ -7,7 +7,6 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  TrendingUp, 
   TrendingDown, 
   Flame, 
   CheckCircle2, 
@@ -17,17 +16,17 @@ import {
   Award
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { Task, WorkspaceMemberWithRole } from '@/lib/types';
 
 interface TeamProgressStatusCardProps {
-  tasks: any[];
-  workspaceMembers: any[];
-  store: any;
+  tasks: Task[];
+  workspaceMembers: WorkspaceMemberWithRole[];
 }
 
 type TimePeriod = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 type StatusLevel = 'below_average' | 'average' | 'above_average' | 'above_and_beyond';
 
-export function TeamProgressStatusCard({ tasks, workspaceMembers, store }: TeamProgressStatusCardProps) {
+export function TeamProgressStatusCard({ tasks, workspaceMembers }: TeamProgressStatusCardProps) {
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('monthly');
 
   // Filter tasks based on time period
@@ -50,7 +49,7 @@ export function TeamProgressStatusCard({ tasks, workspaceMembers, store }: TeamP
         break;
     }
     
-    return tasks.filter((task: any) => {
+    return tasks.filter((task) => {
       const taskDate = new Date(task.createdAt || task.updatedAt);
       return taskDate >= startDate && taskDate <= now;
     });
@@ -58,25 +57,25 @@ export function TeamProgressStatusCard({ tasks, workspaceMembers, store }: TeamP
 
   // Calculate metrics for each member
   const memberMetrics = useMemo(() => {
-    return workspaceMembers.map((member: any) => {
-      const userTasks = filteredTasks.filter((t: any) => 
+    return workspaceMembers.map((member) => {
+      const userTasks = filteredTasks.filter((t) => 
         t.assigneeUserIds?.includes(member.userId)
       );
       
       const totalAssigned = userTasks.length;
-      const completedTasks = userTasks.filter((t: any) => t.status === 'done');
-      const inProgressTasks = userTasks.filter((t: any) => t.status === 'in_progress');
-      const todoTasks = userTasks.filter((t: any) => t.status === 'todo');
+      const completedTasks = userTasks.filter((t) => t.status === 'done');
+      const inProgressTasks = userTasks.filter((t) => t.status === 'in_progress');
+      const todoTasks = userTasks.filter((t) => t.status === 'todo');
       
-      const completedInProgress = inProgressTasks.filter((t: any) => t.status === 'done').length;
+      const completedInProgress = inProgressTasks.filter((t) => t.status === 'done').length;
       const allInProgressCompleted = inProgressTasks.length > 0 && completedInProgress === inProgressTasks.length;
       
-      const completedTodo = todoTasks.filter((t: any) => t.status === 'done').length;
+      const completedTodo = todoTasks.filter((t) => t.status === 'done').length;
       const allTodoCompleted = todoTasks.length > 0 && completedTodo === todoTasks.length;
       
       // Calculate on-time completion rate
-      const tasksWithDueDate = completedTasks.filter((t: any) => t.dueDate);
-      const onTimeTasks = tasksWithDueDate.filter((t: any) => {
+      const tasksWithDueDate = completedTasks.filter((t): t is Task & { dueDate: string } => !!t.dueDate);
+      const onTimeTasks = tasksWithDueDate.filter((t) => {
         const dueDate = new Date(t.dueDate);
         const completedAt = new Date(t.updatedAt);
         return completedAt <= dueDate;
@@ -85,8 +84,8 @@ export function TeamProgressStatusCard({ tasks, workspaceMembers, store }: TeamP
       
       // Calculate streak (consecutive tasks completed on or ahead of time)
       const sortedCompleted = [...completedTasks]
-        .filter((t: any) => t.dueDate)
-        .sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        .filter((t): t is Task & { dueDate: string } => !!t.dueDate)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       
       let currentStreak = 0;
       for (const task of sortedCompleted) {
@@ -210,7 +209,7 @@ export function TeamProgressStatusCard({ tasks, workspaceMembers, store }: TeamP
               >
                 <div className="flex items-start gap-3">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={member.avatarUrl} />
+                    <AvatarImage src={member.avatarUrl ?? undefined} />
                     <AvatarFallback className="text-xs">
                       {member.displayName?.charAt(0) || member.userId?.charAt(0)}
                     </AvatarFallback>

@@ -2,7 +2,7 @@
 
 import { NexusShell } from '@/components/NexusShell';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
-import { useUser, useAuth, useFirestore } from '@/firebase';
+import { useUser, useAuth } from '@/firebase';
 import { useNexusStore } from '@/hooks/use-nexus-store';
 import { 
   GoogleAuthProvider, 
@@ -15,10 +15,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LogIn, Loader2, AlertCircle, UserPlus } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { doc, setDoc } from 'firebase/firestore';
+import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Image from 'next/image';
+import { FirebaseError } from 'firebase/app';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 
 export default function Home() {
@@ -44,9 +44,9 @@ export default function Home() {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      if (err.code === 'auth/popup-closed-by-user') return;
-      setError('Login failed: ' + (err.message || 'Please try again.'));
+    } catch (err) {
+      if (err instanceof FirebaseError && err.code === 'auth/popup-closed-by-user') return;
+      setError('Login failed: ' + (err instanceof Error ? err.message : 'Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -65,18 +65,22 @@ export default function Home() {
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
-    } catch (err: any) {
+    } catch (err) {
       let message = "An error occurred during authentication.";
-      
-      if (err.code === 'auth/invalid-credential') {
-        message = 'Invalid email or password. Please check your credentials.';
-      } else if (err.code === 'auth/email-already-in-use') {
-        message = 'This email is already registered. Try logging in instead.';
-      } else if (err.code === 'auth/weak-password') {
-        message = 'Password should be at least 6 characters.';
-      } else if (err.code === 'auth/invalid-email') {
-        message = 'Please enter a valid email address.';
-      } else {
+
+      if (err instanceof FirebaseError) {
+        if (err.code === 'auth/invalid-credential') {
+          message = 'Invalid email or password. Please check your credentials.';
+        } else if (err.code === 'auth/email-already-in-use') {
+          message = 'This email is already registered. Try logging in instead.';
+        } else if (err.code === 'auth/weak-password') {
+          message = 'Password should be at least 6 characters.';
+        } else if (err.code === 'auth/invalid-email') {
+          message = 'Please enter a valid email address.';
+        } else {
+          message = err.message || message;
+        }
+      } else if (err instanceof Error) {
         message = err.message || message;
       }
       
@@ -117,7 +121,7 @@ export default function Home() {
           </div>
 
           <div className="bg-card/95 p-6 rounded-2xl shadow-2xl border border-white/20 backdrop-blur-md space-y-6">
-            <Tabs value={authMode} onValueChange={(v: any) => setAuthMode(v)} className="w-full">
+            <Tabs value={authMode} onValueChange={(v) => setAuthMode(v as 'login' | 'signup')} className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="signup">Sign Up</TabsTrigger>

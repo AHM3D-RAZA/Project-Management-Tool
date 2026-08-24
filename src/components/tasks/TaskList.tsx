@@ -13,14 +13,11 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Task, Priority } from '@/lib/types';
+import { Task, Priority, Subtask, WorkspaceMemberWithRole, CurrentUser, StatusConfig } from '@/lib/types';
 import { 
-  Clock, 
   CheckCircle2, 
-  PauseCircle,
   MoreVertical 
 } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
 const priorityColors: Record<Priority, string> = {
@@ -30,9 +27,9 @@ const priorityColors: Record<Priority, string> = {
   urgent: 'bg-red-100 text-red-700',
 };
 
-const getStatusInfo = (statuses: any[], statusId: string) => {
+const getStatusInfo = (statuses: StatusConfig[], statusId: string) => {
   const status = statuses.find(s => s.id === statusId);
-  return status || { name: statusId, color: '#94a3b8' };
+  return status || { id: statusId, name: statusId, color: '#94a3b8', isDefault: false };
 };
 
 export function TaskList({ 
@@ -47,12 +44,12 @@ export function TaskList({
 }: { 
   tasks: Task[], 
   onTaskClick: (id: string) => void,
-  updateTask: any,
+  updateTask: (id: string, data: Partial<Task>) => void,
   readOnly?: boolean,
-  subtasks?: any[],
-  workspaceMembers?: any[],
-  currentUser?: any,
-  pipelines?: any[]
+  subtasks?: Subtask[],
+  workspaceMembers?: WorkspaceMemberWithRole[],
+  currentUser?: CurrentUser | null,
+  pipelines?: StatusConfig[]
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -60,7 +57,6 @@ export function TaskList({
     setMounted(true);
   }, []);
 
-  const lastPipelineId = pipelines.length > 0 ? pipelines[pipelines.length - 1].id : 'done';
   const firstPipelineId = pipelines.length > 0 ? pipelines[0].id : 'todo';
 
   return (
@@ -146,9 +142,9 @@ export function TaskList({
               </TableCell>
               <TableCell>
                 <div className="flex items-center gap-1">
-                  {(task.assigneeUserIds || []).slice(0, 3).map((assigneeId: string, idx: number) => {
+                  {(task.assigneeUserIds || []).slice(0, 3).map((assigneeId: string) => {
                     const isCurrentUser = assigneeId === currentUser?.id;
-                    const member = workspaceMembers.find((m: any) => m.userId === assigneeId);
+                    const member = workspaceMembers.find((m) => m.userId === assigneeId);
                     const isOwner = member?.role === 'owner';
                     let displayName = '';
                     let initials = '';

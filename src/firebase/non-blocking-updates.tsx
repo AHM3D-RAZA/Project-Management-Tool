@@ -8,6 +8,9 @@ import {
   CollectionReference,
   DocumentReference,
   SetOptions,
+  WithFieldValue,
+  UpdateData,
+  DocumentData,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import {FirestorePermissionError} from '@/firebase/errors';
@@ -16,7 +19,7 @@ import {FirestorePermissionError} from '@/firebase/errors';
  * Initiates a setDoc operation for a document reference.
  * Returns the Promise so it can be awaited for sequential operations if needed.
  */
-export function setDocumentNonBlocking(docRef: DocumentReference, data: any, options: SetOptions) {
+export function setDocumentNonBlocking(docRef: DocumentReference, data: WithFieldValue<DocumentData>, options: SetOptions) {
   return setDoc(docRef, data, options).catch(error => {
     errorEmitter.emit(
       'permission-error',
@@ -35,7 +38,7 @@ export function setDocumentNonBlocking(docRef: DocumentReference, data: any, opt
  * Initiates an addDoc operation for a collection reference.
  * Returns the Promise for sequential operations.
  */
-export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
+export function addDocumentNonBlocking(colRef: CollectionReference, data: WithFieldValue<DocumentData>) {
   return addDoc(colRef, data)
     .catch(error => {
       errorEmitter.emit(
@@ -54,7 +57,7 @@ export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
 /**
  * Initiates an updateDoc operation for a document reference.
  */
-export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) {
+export function updateDocumentNonBlocking(docRef: DocumentReference, data: UpdateData<DocumentData>) {
   return updateDoc(docRef, data)
     .catch(error => {
       errorEmitter.emit(

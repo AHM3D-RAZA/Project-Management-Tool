@@ -31,6 +31,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import type { NexusStore } from '@/hooks/use-nexus-store';
+import type { SearchedUser } from '@/lib/types';
 
 export function InviteMembersModal({ 
   isOpen, 
@@ -39,7 +41,7 @@ export function InviteMembersModal({
 }: { 
   isOpen: boolean, 
   onOpenChange: (open: boolean) => void, 
-  store: any 
+  store: NexusStore 
 }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('send-email');
@@ -55,7 +57,7 @@ export function InviteMembersModal({
   // Search State
   const [searchEmail, setSearchEmail] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchedUser[]>([]);
 
   useEffect(() => {
     if (activeTab !== 'find-user' || !searchEmail.trim()) {
@@ -94,8 +96,8 @@ export function InviteMembersModal({
         description: `We emailed ${inviteEmail.trim()} with a link to join.`,
       });
       setInviteEmail('');
-    } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Could not send invite', description: error.message || 'Try again.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Could not send invite', description: (error instanceof Error ? error.message : null) || 'Try again.' });
     } finally {
       setIsSending(false);
     }
@@ -107,7 +109,7 @@ export function InviteMembersModal({
     );
   };
 
-  const handleAddDirect = async (user: any, targetRole: 'member' | 'lead') => {
+  const handleAddDirect = async (user: SearchedUser, targetRole: 'member' | 'lead') => {
     try {
       await store.directAddMember(user, targetRole, selectedProjects);
       toast({ 
@@ -116,8 +118,8 @@ export function InviteMembersModal({
       });
       setSearchResults([]);
       setSearchEmail('');
-    } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Error', description: error instanceof Error ? error.message : 'Please try again.' });
     }
   };
 
@@ -132,7 +134,7 @@ export function InviteMembersModal({
       </p>
       <ScrollArea className="h-[120px] rounded-md border p-2">
         <div className="space-y-2">
-          {store.workspaceProjects.map((p: any) => (
+          {store.workspaceProjects.map((p) => (
             <div key={p.id} className="flex items-center space-x-2">
               <Checkbox 
                 id={`proj-${p.id}`} 
@@ -202,7 +204,7 @@ export function InviteMembersModal({
               <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <Label>Assign Role</Label>
-                  <Select value={role} onValueChange={(v: any) => setRole(v)}>
+                  <Select value={role} onValueChange={(v: 'member' | 'lead') => setRole(v)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -257,7 +259,7 @@ export function InviteMembersModal({
                       <div key={user.id} className="flex items-center justify-between p-3 rounded-lg border bg-card/50">
                         <div className="flex items-center gap-3">
                           <Avatar>
-                            <AvatarImage src={user.avatarUrl} />
+                            <AvatarImage src={user.avatarUrl ?? undefined} />
                             <AvatarFallback>{user.name?.charAt(0) || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex flex-col">
@@ -285,7 +287,7 @@ export function InviteMembersModal({
 
                   {!isSearching && searchResults.length === 0 && searchEmail.length >= 2 && (
                     <div className="text-center py-6 text-muted-foreground text-sm border border-dashed rounded-lg">
-                      No results for "{searchEmail}"
+                      No results for &quot;{searchEmail}&quot;
                     </div>
                   )}
                   

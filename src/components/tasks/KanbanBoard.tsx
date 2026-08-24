@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Task, Priority } from '@/lib/types';
+import { Task, Priority, Subtask, WorkspaceMemberWithRole, CurrentUser } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Plus, Clock, CheckCircle2 } from 'lucide-react';
@@ -39,9 +39,9 @@ export function KanbanBoard({
   updateTask: (id: string, data: Partial<Task>) => void,
   onAddTask?: (status: string) => void,
   readOnly?: boolean,
-  subtasks?: any[],
-  workspaceMembers?: any[],
-  currentUser?: any,
+  subtasks?: Subtask[],
+  workspaceMembers?: WorkspaceMemberWithRole[],
+  currentUser?: CurrentUser | null,
   columns?: { id: string, name: string, color: string }[]
 }) {
   const [mounted, setMounted] = useState(false);
@@ -197,9 +197,9 @@ export function KanbanBoard({
                         )}
                       </div>
                       <div className="flex -space-x-2">
-                        {(task.assigneeUserIds || []).slice(0, 3).map((assigneeId: string, idx: number) => {
+                        {(task.assigneeUserIds || []).slice(0, 3).map((assigneeId: string) => {
                           const isCurrentUser = assigneeId === currentUser?.id;
-                          const member = workspaceMembers.find((m: any) => m.userId === assigneeId);
+                          const member = workspaceMembers.find((m) => m.userId === assigneeId);
                           const isOwner = member?.role === 'owner';
                           let displayName = '';
                           let initials = '';

@@ -59,7 +59,6 @@ export async function sendWorkspaceInviteEmail(
 
   const html = `
 <!DOCTYPE html>
-<html>
 <html lang="en">
 <body style="margin:0;padding:0;background:#f4f5f7;font-family:Inter,Arial,sans-serif;color:#111827;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f5f7;padding:24px 12px;">

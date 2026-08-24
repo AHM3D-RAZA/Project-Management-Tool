@@ -86,7 +86,7 @@ export function MentionDropdown({
           onMouseEnter={() => setSelectedIndex(index)}
         >
           <Avatar className="h-6 w-6">
-            <AvatarImage src={member.avatarUrl} />
+            <AvatarImage src={member.avatarUrl ?? undefined} />
             <AvatarFallback className="text-xs">
               {member.displayName.charAt(0)}
             </AvatarFallback>

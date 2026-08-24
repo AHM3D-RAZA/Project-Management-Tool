@@ -3,7 +3,9 @@ import type {NextConfig} from 'next';
 const nextConfig: NextConfig = {
   /* config options here */
   typescript: {
-    ignoreBuildErrors: true,
+    // Re-enabled: the codebase now passes `tsc --noEmit` cleanly, so real
+    // type errors should fail the build instead of shipping silently.
+    ignoreBuildErrors: false,
   },
   eslint: {
     ignoreDuringBuilds: true,

@@ -1,4 +1,4 @@
-import { User, Workspace, WorkspaceMember, Project, Task, Status, Priority, Comment, Notification } from './types';
+import { User, Workspace, WorkspaceMember, Project, Task, Comment, Notification } from './types';
 
 export const currentUser: User = {
   id: 'u1',

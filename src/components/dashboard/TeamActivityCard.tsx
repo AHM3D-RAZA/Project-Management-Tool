@@ -6,8 +6,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Users, Clock, Circle } from 'lucide-react';
+import { Users, Circle } from 'lucide-react';
 import { AttendanceEntry } from '@/lib/types';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 
 interface MemberStatus {
   userId: string;
@@ -34,7 +35,7 @@ function formatTime(isoString: string | null): string {
   return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function TeamActivityCard({ store }: { store: any }) {
+export function TeamActivityCard({ store }: { store: NexusStore }) {
   const {
     workspaceMembers,
     todayTeamAttendance,
@@ -58,7 +59,7 @@ export function TeamActivityCard({ store }: { store: any }) {
   const memberStatuses: MemberStatus[] = useMemo(() => {
     if (!workspaceMembers) return [];
 
-    return workspaceMembers.map((member: any) => {
+    return workspaceMembers.map((member) => {
       // Check today's entries first, then fall back to open (cross-midnight) entries
       const todayEntry: AttendanceEntry | undefined = (todayTeamAttendance || []).find(
         (a: AttendanceEntry) => a.userId === member.userId
