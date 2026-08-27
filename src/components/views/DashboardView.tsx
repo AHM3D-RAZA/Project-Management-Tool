@@ -146,7 +146,7 @@ export function DashboardView({ store, onNavigateToProject }: { store: NexusStor
             <p className="text-xs text-muted-foreground mt-1">Past due</p>
           </CardContent>
         </Card>
-        <AttendanceCard store={store} />
+        {store.activeWorkspace?.attendanceEnabled !== false && <AttendanceCard store={store} />}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -201,18 +201,18 @@ export function DashboardView({ store, onNavigateToProject }: { store: NexusStor
         </Card>
 
         <div className="space-y-6">
-          <UserProgressStatusCard 
-            tasks={allWorkspaceTasks} 
-            currentUser={store.currentUser}
-          />
+          <TodayCard store={store} onTaskClick={setSelectedTaskId} />
           <OverdueTasksCard 
             tasks={overdueTasks} 
             workspaceProjects={workspaceProjects}
             onTaskClick={setSelectedTaskId}
             onNavigateToProject={onNavigateToProject}
           />
-          <TodayCard store={store} onTaskClick={setSelectedTaskId} />
           <ProgressTracker tasks={allWorkspaceTasks} />
+          <UserProgressStatusCard 
+            tasks={allWorkspaceTasks} 
+            currentUser={store.currentUser}
+          />
         </div>
 
         <Card className="shadow-sm border-none">

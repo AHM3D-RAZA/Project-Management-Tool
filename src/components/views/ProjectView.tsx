@@ -45,7 +45,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import type { NexusStore } from '@/hooks/use-nexus-store';
 
-export function ProjectView({ store }: { store: NexusStore }) {
+export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { store: NexusStore, initialTaskId?: string | null, onInitialTaskConsumed?: () => void }) {
   const { toast } = useToast();
   const [view, setView] = useState<'list' | 'kanban' | 'calendar'>('list');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -53,6 +53,18 @@ export function ProjectView({ store }: { store: NexusStore }) {
   const [isMembersOpen, setIsMembersOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isAddStatusOpen, setIsAddStatusOpen] = useState(false);
+
+  // Opens the task a caller (e.g. a notification click) pointed us at.
+  // Runs once per distinct initialTaskId; onInitialTaskConsumed lets the
+  // caller clear its own pending state so re-clicking the same
+  // notification later can still re-open the panel.
+  useEffect(() => {
+    if (initialTaskId) {
+      setSelectedTaskId(initialTaskId);
+      onInitialTaskConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTaskId]);
 
   // Form State
   const [newTaskTitle, setNewTaskTitle] = useState('');

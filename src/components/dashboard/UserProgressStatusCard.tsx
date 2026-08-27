@@ -65,11 +65,14 @@ export function UserProgressStatusCard({ tasks, currentUser }: UserProgressStatu
     const inProgressTasks = userTasks.filter((t) => t.status === 'in_progress');
     const todoTasks = userTasks.filter((t) => t.status === 'todo');
     
-    const completedInProgress = inProgressTasks.filter((t) => t.status === 'done').length;
-    const allInProgressCompleted = inProgressTasks.length > 0 && completedInProgress === inProgressTasks.length;
-    
-    const completedTodo = todoTasks.filter((t) => t.status === 'done').length;
-    const allTodoCompleted = todoTasks.length > 0 && completedTodo === todoTasks.length;
+    // "On top of" a bucket of active work means nothing in it has slipped
+    // past its due date — NOT that it's been marked done (a task can't be
+    // both 'in_progress'/'todo' and 'done' at once, so checking for status
+    // 'done' within an already status-filtered array can never match).
+    const now = new Date();
+    const isOverdue = (t: Task) => !!t.dueDate && new Date(t.dueDate) < now;
+    const noOverdueInProgress = !inProgressTasks.some(isOverdue);
+    const noOverdueTodo = !todoTasks.some(isOverdue);
     
     // Calculate on-time completion rate
     const tasksWithDueDate = completedTasks.filter((t): t is Task & { dueDate: string } => !!t.dueDate);
@@ -101,8 +104,8 @@ export function UserProgressStatusCard({ tasks, currentUser }: UserProgressStatu
       completedCount: completedTasks.length,
       inProgressCount: inProgressTasks.length,
       todoCount: todoTasks.length,
-      allInProgressCompleted,
-      allTodoCompleted,
+      noOverdueInProgress,
+      noOverdueTodo,
       onTimeRate,
       currentStreak,
       tasksByStatus: {
@@ -123,9 +126,9 @@ export function UserProgressStatusCard({ tasks, currentUser }: UserProgressStatu
     
     if (metrics.currentStreak >= 3 && metrics.onTimeRate >= 0.8) {
       return 'above_and_beyond';
-    } else if (metrics.allInProgressCompleted && metrics.allTodoCompleted) {
+    } else if (metrics.noOverdueInProgress && metrics.noOverdueTodo) {
       return 'above_average';
-    } else if (metrics.allInProgressCompleted || metrics.inProgressCount === 0) {
+    } else if (metrics.noOverdueInProgress || metrics.inProgressCount === 0) {
       return 'average';
     } else {
       return 'below_average';
@@ -134,15 +137,15 @@ export function UserProgressStatusCard({ tasks, currentUser }: UserProgressStatu
 
   const statusConfig = {
     below_average: {
-      label: 'Below Average',
-      description: 'Complete your in-progress tasks to improve',
-      color: 'text-destructive',
-      bgColor: 'bg-destructive/10',
-      borderColor: 'border-destructive',
+      label: 'Needs a Check-in',
+      description: 'Some in-progress or upcoming tasks are overdue',
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-100 dark:bg-amber-900/20',
+      borderColor: 'border-amber-500',
       icon: TrendingDown,
     },
     average: {
-      label: 'Average',
+      label: 'Staying on Track',
       description: 'Good progress, keep it up!',
       color: 'text-muted-foreground',
       bgColor: 'bg-muted',
@@ -150,8 +153,8 @@ export function UserProgressStatusCard({ tasks, currentUser }: UserProgressStatu
       icon: Target,
     },
     above_average: {
-      label: 'Above Average',
-      description: 'Excellent work on task completion',
+      label: 'On Top of It',
+      description: 'Nothing overdue — everything is on schedule',
       color: 'text-primary',
       bgColor: 'bg-primary/10',
       borderColor: 'border-primary',

@@ -16,7 +16,7 @@ import {
   Clock,
   Shield
 } from 'lucide-react';
-import { useNexusStore } from '@/hooks/use-nexus-store';
+import type { NexusStore } from '@/hooks/use-nexus-store';
 import { useAuth } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,8 +52,7 @@ import { DeleteWorkspaceButton } from './workspaces/DeleteWorkspaceButton';
 
 type ViewType = 'dashboard' | 'project' | 'members' | 'my-tasks' | 'notifications' | 'attendance' | 'audit-logs';
 
-export function NexusShell() {
-  const store = useNexusStore();
+export function NexusShell({ store }: { store: NexusStore }) {
   const auth = useAuth();
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [mounted, setMounted] = useState(false);
@@ -63,6 +62,7 @@ export function NexusShell() {
   const [isWsEditDialogOpen, setIsWsEditDialogOpen] = useState(false);
   const [isProjDialogOpen, setIsProjDialogOpen] = useState(false);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [notifiedTaskId, setNotifiedTaskId] = useState<string | null>(null);
   
   const [newWsName, setNewWsName] = useState('');
   const [newWsDesc, setNewWsDesc] = useState('');
@@ -89,9 +89,7 @@ export function NexusShell() {
     }
     store.selectProject(projId);
     setCurrentView('project');
-    // TaskDetailPanel will open if taskId is set elsewhere or passed.
-    // In our simplified shell, setting selectProject and view is usually enough
-    // but the store could also track a "currentlyExpandedTaskId".
+    setNotifiedTaskId(taskId);
   };
 
   const handleCreateWorkspace = () => {
@@ -205,14 +203,16 @@ export function NexusShell() {
             </Button>
             {store.isAdmin && (
               <>
-                <Button 
-                  variant={currentView === 'attendance' ? 'secondary' : 'ghost'} 
-                  className="w-full justify-start gap-3"
-                  onClick={() => handleNavClick('attendance')}
-                >
-                  <Clock className="h-4 w-4" />
-                  Attendance Log
-                </Button>
+                {store.activeWorkspace?.attendanceEnabled !== false && (
+                  <Button 
+                    variant={currentView === 'attendance' ? 'secondary' : 'ghost'} 
+                    className="w-full justify-start gap-3"
+                    onClick={() => handleNavClick('attendance')}
+                  >
+                    <Clock className="h-4 w-4" />
+                    Attendance Log
+                  </Button>
+                )}
                 <Button 
                   variant={currentView === 'audit-logs' ? 'secondary' : 'ghost'} 
                   className="w-full justify-start gap-3"
@@ -317,12 +317,18 @@ export function NexusShell() {
 
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-background p-6 max-w-full">
           {currentView === 'dashboard' && <DashboardView store={store} onNavigateToProject={handleProjectClick} />}
-          {currentView === 'project' && <ProjectView store={store} />}
+          {currentView === 'project' && (
+            <ProjectView
+              store={store}
+              initialTaskId={notifiedTaskId}
+              onInitialTaskConsumed={() => setNotifiedTaskId(null)}
+            />
+          )}
           {currentView === 'members' && (
             <MembersView 
               store={store} 
               onInviteClick={() => setIsInviteOpen(true)} 
-              isAdmin={store.isOwner}
+              isAdmin={store.isAdmin}
             />
           )}
           {currentView === 'my-tasks' && <MyTasksView store={store} />}

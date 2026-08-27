@@ -60,7 +60,7 @@ import type { NexusStore } from '@/hooks/use-nexus-store';
 function withMentionableNames(members: WorkspaceMemberWithRole[]): Array<{ userId: string; displayName: string; avatarUrl?: string | null }> {
   return members.filter((m): m is WorkspaceMemberWithRole & { displayName: string } => !!m.displayName);
 }
-import { MentionDropdown } from '@/components/mentions/MentionDropdown';
+import { MentionDropdown, type MentionDropdownHandle } from '@/components/mentions/MentionDropdown';
 import { parseMentions, extractMentionedUserIds, getCurrentMentionQuery, replaceMention, renderTextWithMentions } from '@/lib/mentions';
 
 const renderCommentBody = (text: string, workspaceMembers: Array<{ userId: string; displayName: string }> = []) => {
@@ -447,6 +447,7 @@ export function TaskDetailPanel({
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
   const [mentionStartIndex, setMentionStartIndex] = useState(0);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const mentionDropdownRef = React.useRef<MentionDropdownHandle>(null);
 
   const [localTitle, setLocalTitle] = useState('');
   const [localDesc, setLocalDesc] = useState('');
@@ -671,6 +672,10 @@ export function TaskDetailPanel({
   };
 
   const handleCommentKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showMentionDropdown && mentionDropdownRef.current?.handleKeyDown(e)) {
+      return;
+    }
+
     handleKeyDownBullets(e, newComment, setNewComment);
     
     if (e.key === 'Escape' && showMentionDropdown) {
@@ -1130,9 +1135,14 @@ export function TaskDetailPanel({
 
             {/* Comments Section */}
             <div className="space-y-6">
-              <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight flex items-center gap-1.5">
-                <MessageSquare className="h-3 w-3" /> Comments ({comments.length})
-              </Label>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight flex items-center gap-1.5">
+                  <MessageSquare className="h-3 w-3" /> Comments ({comments.length})
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Discussion on this task specifically. For a general status note not tied to one task, post a Work Update instead.
+                </p>
+              </div>
 
               <div className="space-y-4">
                 {comments.map((comment) => {
@@ -1227,6 +1237,7 @@ export function TaskDetailPanel({
                 </div>
                 {showMentionDropdown && (
                   <MentionDropdown
+                    ref={mentionDropdownRef}
                     query={mentionQuery}
                     members={withMentionableNames(eligibleAssignees)}
                     onSelect={handleMentionSelect}

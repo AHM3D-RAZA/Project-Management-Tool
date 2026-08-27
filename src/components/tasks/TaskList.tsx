@@ -126,9 +126,9 @@ export function TaskList({
                   const status = getStatusInfo(pipelines, task.status);
                   return (
                     <div className="flex items-center gap-2">
-                      <div 
-                        className="h-3 w-3 rounded-full" 
-                        style={{ backgroundColor: status.color }}
+                      <div
+                        className={cn("h-3 w-3 rounded-full", status.color?.startsWith('bg-') && status.color)}
+                        style={status.color?.startsWith('bg-') ? undefined : { backgroundColor: status.color }}
                       />
                       <span className="text-xs text-muted-foreground">{status.name}</span>
                     </div>

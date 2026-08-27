@@ -129,34 +129,6 @@ export function AttendanceLogView({ store }: { store: NexusStore }) {
           <h2 className="text-2xl font-bold">Attendance Log</h2>
           <p className="text-muted-foreground">Track check-ins and check-outs for all team members</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Select value={filterTimeframe} onValueChange={setFilterTimeframe}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Timeframe" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Time</SelectItem>
-              <SelectItem value="week">Past 7 Days</SelectItem>
-              <SelectItem value="month">Past 30 Days</SelectItem>
-              <SelectItem value="quarter">Past 90 Days</SelectItem>
-              <SelectItem value="year">Past Year</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={filterUserId} onValueChange={setFilterUserId}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Team Member" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Members</SelectItem>
-              {workspaceMembers.map((m) => (
-                <SelectItem key={m.userId} value={m.userId}>
-                  {m.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

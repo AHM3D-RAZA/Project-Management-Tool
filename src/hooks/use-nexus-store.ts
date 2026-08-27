@@ -924,14 +924,16 @@ export function useNexusStore() {
       return;
     }
 
-    // Guard: must wait at least 8 hours after check-in before checking out
+    // Guard: must wait at least the workspace's configured minimum hours
+    // (default 8) after check-in before checking out.
+    const minHours = activeWorkspace?.minCheckoutHours ?? 8;
     const checkInTime = new Date(entryToClose.checkInTime);
     const now = new Date();
     const hoursSinceCheckIn = (now.getTime() - checkInTime.getTime()) / (1000 * 60 * 60);
-    if (hoursSinceCheckIn < 8) {
-      const hoursRemaining = Math.ceil(8 - hoursSinceCheckIn);
+    if (hoursSinceCheckIn < minHours) {
+      const hoursRemaining = Math.ceil(minHours - hoursSinceCheckIn);
       console.log(`Must wait ${hoursRemaining} more hours before checking out`);
-      throw new Error(`Must wait at least 8 hours after check-in. ${hoursRemaining} hours remaining.`);
+      throw new Error(`Must wait at least ${minHours} hours after check-in. ${hoursRemaining} hours remaining.`);
     }
 
     const attendanceRef = doc(db, 'workspaces', entryToClose.workspaceId, 'attendance', entryToClose.id);
@@ -947,7 +949,7 @@ export function useNexusStore() {
       console.error("Failed to check out:", e);
       throw e;
     }
-  }, [db, user, activeWorkspace?.id, openAttendanceEntry]);
+  }, [db, user, activeWorkspace?.id, activeWorkspace?.minCheckoutHours, openAttendanceEntry]);
 
   const addCustomStatus = useCallback(async (name: string, color: string) => {
     const wsId = activeWorkspace?.id;

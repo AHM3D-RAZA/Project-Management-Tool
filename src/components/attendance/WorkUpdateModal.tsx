@@ -42,7 +42,8 @@ export function WorkUpdateModal({ isOpen, onClose, onSave }: WorkUpdateModalProp
         <DialogHeader>
           <DialogTitle>Work Update</DialogTitle>
           <DialogDescription>
-            Please provide a brief update on your current work.
+            A general status note for the day, not tied to a specific task — for updates on
+            individual tasks, use that task&apos;s comments instead.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">

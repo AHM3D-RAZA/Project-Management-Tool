@@ -29,6 +29,15 @@ service cloud.firestore {
       return isSignedIn() && ws.data.ownerUserId == request.auth.uid;
     }
 
+    // Per-workspace minimum hours between check-in and check-out
+    // (Workspace.minCheckoutHours), defaulting to 8 when the workspace
+    // hasn't set one.
+    function hasMetMinCheckoutHours(workspaceId, checkInServerTime) {
+      let ws = getWorkspace(workspaceId);
+      let minHours = ('minCheckoutHours' in ws.data) ? ws.data.minCheckoutHours : 8;
+      return request.time >= checkInServerTime + duration.value(minHours, 'h');
+    }
+
     // A user accepting an invite writes their own uid into memberRoles as
     // 'member' or 'lead' (never 'owner') and cannot touch anything else on
     // the workspace doc. This is the ONLY way a non-admin may update a
@@ -89,7 +98,21 @@ service cloud.firestore {
     }
 
     match /workspaces/{workspaceId} {
-      allow read: if isWorkspaceMember(workspaceId);
+      // Split from a combined `allow read` because list (collection
+      // query) authorization must be provable directly from
+      // resource.data of each candidate document. Firestore will not
+      // authorize an unbounded query (no .limit()) using a rule that
+      // calls get() — even when that get() just re-fetches the same
+      // document — because it can't bound how many such calls
+      // evaluating the whole candidate set would require, and denies
+      // the entire list request outright regardless of what's actually
+      // in the collection. This mirrors the client's own query filter
+      // (memberRoles.<uid> != null) directly against resource.data,
+      // with no get() call, so Firestore can validate it.
+      allow get: if isWorkspaceMember(workspaceId);
+      allow list: if isSignedIn() &&
+        (request.auth.uid in resource.data.memberRoles || resource.data.ownerUserId == request.auth.uid);
+
       allow create: if isSignedIn()
                     && request.resource.data.ownerUserId == request.auth.uid
                     && request.resource.data.memberRoles[request.auth.uid] == 'owner';
@@ -133,18 +156,21 @@ service cloud.firestore {
 
         // Update: only own entry, must be a workspace member, and — when
         // this update is the one setting checkOutTime for the first time —
-        // the 8-hour minimum is enforced using the server-authoritative
-        // checkInServerTime, not the client-supplied checkInTime string
-        // (which a skewed device clock could manipulate). Records written
-        // before checkInServerTime existed are grandfathered through
-        // rather than being permanently unable to check out.
+        // a minimum-hours-since-checkin rule is enforced using the
+        // server-authoritative checkInServerTime, not the client-supplied
+        // checkInTime string (which a skewed device clock could
+        // manipulate). The minimum itself is per-workspace
+        // (Workspace.minCheckoutHours), defaulting to 8 when the workspace
+        // hasn't set one. Records written before checkInServerTime existed
+        // are grandfathered through rather than being permanently unable
+        // to check out.
         allow update: if isSignedIn()
           && request.auth.uid == request.resource.data.userId
           && isWorkspaceMember(workspaceId)
           && (
             !(resource.data.checkOutTime == null && request.resource.data.checkOutTime != null)
             || !('checkInServerTime' in resource.data)
-            || request.time >= resource.data.checkInServerTime + duration.value(8, 'h')
+            || hasMetMinCheckoutHours(workspaceId, resource.data.checkInServerTime)
           );
 
         // Delete: two cases —

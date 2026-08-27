@@ -36,6 +36,10 @@ export interface Workspace {
   memberRoles: Record<string, 'owner' | 'lead' | 'member'>;
   createdAt: string;
   updatedAt: string;
+  /** Whether Attendance/Work Updates tracking is enabled for this workspace. Defaults to true when unset, so existing workspaces are unaffected. */
+  attendanceEnabled?: boolean;
+  /** Minimum hours that must pass after check-in before a member can check out. Defaults to 8 when unset. */
+  minCheckoutHours?: number;
 }
 
 export interface WorkspaceMember {

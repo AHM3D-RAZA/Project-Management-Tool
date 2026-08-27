@@ -73,17 +73,25 @@ export function useDoc<T = unknown>(
       },
       (error: FirestoreError) => {
         console.error('[useDoc] Error for:', memoizedDocRef.path, error.message);
-        const contextualError = new FirestorePermissionError({
-          operation: 'get',
-          path: memoizedDocRef.path,
-        })
+        const isPermissionError = error.code === 'permission-denied';
+        const surfacedError = isPermissionError
+          ? new FirestorePermissionError({
+              operation: 'get',
+              path: memoizedDocRef.path,
+            })
+          : error;
 
-        setError(contextualError)
+        setError(surfacedError)
         setData(null)
         setIsLoading(false)
 
-        // trigger global error propagation
-        errorEmitter.emit('permission-error', contextualError);
+        // Only genuine security-rule rejections should trigger the global
+        // error propagation (which crashes the app for loud rule-debugging).
+        // Any other failure (offline, network blip, etc.) is a normal,
+        // recoverable failure that stays local to this hook's error state.
+        if (isPermissionError) {
+          errorEmitter.emit('permission-error', surfacedError as FirestorePermissionError);
+        }
       }
     );
 
