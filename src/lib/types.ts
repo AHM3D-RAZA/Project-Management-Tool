@@ -9,6 +9,12 @@ export interface CustomStatus {
   order: number;
   createdAt: string;
   createdBy: string;
+  /** Snapshot of the parent workspace's member uids at write time, kept in sync
+   * on membership changes. Lets Firestore list rules check membership directly
+   * off this document (resource.data) instead of via get() on the parent
+   * workspace — Firestore cannot authorize an unbounded list query using a
+   * get()-based rule, regardless of what's actually in the collection. */
+  memberUserIds: string[];
 }
 
 export interface StatusConfig {
@@ -40,6 +46,14 @@ export interface Workspace {
   attendanceEnabled?: boolean;
   /** Minimum hours that must pass after check-in before a member can check out. Defaults to 8 when unset. */
   minCheckoutHours?: number;
+  /** Set to true by a self-service invite acceptance (link/email) — that
+   * user can't yet list/backfill pre-existing workspace documents with
+   * their own membership, since they're not in those documents'
+   * memberUserIds yet. The next admin client to load this workspace runs
+   * the full member sync and clears this flag. See lib/member-sync.ts and
+   * /TODO.md ("Instant member backfill on self-service join") for the
+   * planned proper fix (Cloud Function, requires the Blaze plan). */
+  pendingMemberSync?: boolean;
 }
 
 export interface WorkspaceMember {
@@ -49,6 +63,8 @@ export interface WorkspaceMember {
   displayName: string;
   email: string;
   avatarUrl?: string | null;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 /**
@@ -101,6 +117,8 @@ export interface Project {
   createdByUserId?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 export interface Task {
@@ -116,6 +134,8 @@ export interface Task {
   tags?: string[];
   createdAt: string;
   updatedAt: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 export interface Subtask {
@@ -131,26 +151,34 @@ export interface Subtask {
   assigneeUserId?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 
 export interface Comment {
   id: string;
+  workspaceId: string;
   taskId: string;
   authorUserId: string;
   body: string;
   createdAt: string;
   updatedAt?: string;
   isEdited?: boolean;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 export interface Attachment {
   id: string;
+  workspaceId: string;
   taskId: string;
   url: string;
   displayName?: string | null;
   addedBy: string;
   addedAt: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 export interface Invitation {
@@ -169,6 +197,8 @@ export interface Invitation {
   expiresAt: string | null;
   /** When set (email invites), only this address may accept the invitation. */
   invitedEmail?: string | null;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 export type NotificationType = 
@@ -212,6 +242,8 @@ export interface AttendanceEntry {
   autoCheckout?: boolean; // true when system auto-checked-out after 12h
   createdAt: string;
   updatedAt: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 export interface WorkUpdate {
@@ -221,6 +253,8 @@ export interface WorkUpdate {
   updateText: string;
   timestamp: string; // ISO timestamp
   createdAt: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
 }
 
 export interface AuditLog {
@@ -233,4 +267,10 @@ export interface AuditLog {
   entityId: string;
   summary: string;
   timestamp: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
+  /** Owner + leads only. Audit logs are admin-only (unlike attendance/work
+   * updates, which intentionally expose some entries to any member), so
+   * their list rule needs admin status specifically, not just membership. */
+  adminUserIds: string[];
 }

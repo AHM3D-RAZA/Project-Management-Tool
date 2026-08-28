@@ -37,10 +37,10 @@ export const mockWorkspaces: Workspace[] = [
 ];
 
 export const mockWorkspaceMembers: WorkspaceMember[] = [
-  { id: 'wm1', workspaceId: 'w1', userId: 'u1', displayName: 'Alex Rivera', email: 'alex@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u1/100/100' },
-  { id: 'wm2', workspaceId: 'w1', userId: 'u2', displayName: 'Jordan Smith', email: 'jordan@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u2/100/100' },
-  { id: 'wm3', workspaceId: 'w2', userId: 'u1', displayName: 'Alex Rivera', email: 'alex@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u1/100/100' },
-  { id: 'wm4', workspaceId: 'w2', userId: 'u3', displayName: 'Sarah Chen', email: 'sarah@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u3/100/100' },
+  { id: 'wm1', workspaceId: 'w1', userId: 'u1', displayName: 'Alex Rivera', email: 'alex@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u1/100/100', memberUserIds: ['u1', 'u2'] },
+  { id: 'wm2', workspaceId: 'w1', userId: 'u2', displayName: 'Jordan Smith', email: 'jordan@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u2/100/100', memberUserIds: ['u1', 'u2'] },
+  { id: 'wm3', workspaceId: 'w2', userId: 'u1', displayName: 'Alex Rivera', email: 'alex@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u1/100/100', memberUserIds: ['u1', 'u3'] },
+  { id: 'wm4', workspaceId: 'w2', userId: 'u3', displayName: 'Sarah Chen', email: 'sarah@nexustrack.io', avatarUrl: 'https://picsum.photos/seed/u3/100/100', memberUserIds: ['u1', 'u3'] },
 ];
 
 export const mockProjects: Project[] = [
@@ -54,6 +54,7 @@ export const mockProjects: Project[] = [
     createdByUserId: 'u1',
     createdAt: '2025-01-02T09:00:00.000Z',
     updatedAt: '2025-01-02T09:00:00.000Z',
+    memberUserIds: ['u1', 'u2'],
   },
   {
     id: 'p2',
@@ -65,6 +66,7 @@ export const mockProjects: Project[] = [
     createdByUserId: 'u1',
     createdAt: '2025-01-05T14:30:00.000Z',
     updatedAt: '2025-01-05T14:30:00.000Z',
+    memberUserIds: ['u1', 'u2'],
   },
 ];
 
@@ -82,6 +84,7 @@ export const mockTasks: Task[] = [
     tags: ['UX', 'Phase 1'],
     createdAt: '2025-01-10T11:00:00.000Z',
     updatedAt: '2025-01-10T11:00:00.000Z',
+    memberUserIds: ['u1', 'u2'],
   },
   {
     id: 't2',
@@ -96,6 +99,7 @@ export const mockTasks: Task[] = [
     tags: ['UI', 'A11y'],
     createdAt: '2025-01-12T15:00:00.000Z',
     updatedAt: '2025-01-12T15:00:00.000Z',
+    memberUserIds: ['u1', 'u2'],
   },
   {
     id: 't3',
@@ -110,23 +114,28 @@ export const mockTasks: Task[] = [
     tags: ['Research'],
     createdAt: '2025-01-15T09:00:00.000Z',
     updatedAt: '2025-01-15T09:00:00.000Z',
+    memberUserIds: ['u1', 'u2'],
   },
 ];
 
 export const mockComments: Comment[] = [
   {
     id: 'c1',
+    workspaceId: 'w1',
     taskId: 't1',
     authorUserId: 'u2',
     body: 'I think we should stick to the tab bar for better visibility.',
     createdAt: '2025-01-11T10:00:00.000Z',
+    memberUserIds: ['u1', 'u2'],
   },
   {
     id: 'c2',
+    workspaceId: 'w1',
     taskId: 't1',
     authorUserId: 'u1',
     body: 'Agreed. Let\'s prototype that first.',
     createdAt: '2025-01-11T14:30:00.000Z',
+    memberUserIds: ['u1', 'u2'],
   }
 ];
 

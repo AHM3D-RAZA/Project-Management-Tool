@@ -39,9 +39,11 @@ service cloud.firestore {
     }
 
     // A user accepting an invite writes their own uid into memberRoles as
-    // 'member' or 'lead' (never 'owner') and cannot touch anything else on
-    // the workspace doc. This is the ONLY way a non-admin may update a
-    // workspace document.
+    // 'member' or 'lead' (never 'owner'), may flag pendingMemberSync (see
+    // Workspace.pendingMemberSync in lib/types.ts — and /TODO.md for why
+    // this flag exists and its planned proper fix) for an admin to pick up
+    // later, and cannot touch anything else on the workspace doc. This is
+    // the ONLY way a non-admin may update a workspace document.
     function isAcceptingInvite(workspaceId) {
       let before = resource.data;
       let after = request.resource.data;
@@ -50,10 +52,14 @@ service cloud.firestore {
       return isSignedIn()
         && !(request.auth.uid in before.memberRoles)
         && (after.memberRoles[request.auth.uid] == 'member' || after.memberRoles[request.auth.uid] == 'lead')
-        && changedKeys.hasOnly(['memberRoles', 'updatedAt'])
+        && changedKeys.hasOnly(['memberRoles', 'updatedAt', 'pendingMemberSync'])
         // only the caller's own key inside memberRoles may change — no one
         // else's role can be touched in the same write.
-        && memberRoleChanges.hasOnly([request.auth.uid]);
+        && memberRoleChanges.hasOnly([request.auth.uid])
+        // the flag may only ever be set to true here — clearing it back
+        // to false is an admin-only action (covered separately by
+        // isWorkspaceAdmin, which permits updating any field).
+        && (!('pendingMemberSync' in after) || after.pendingMemberSync == true);
     }
 
     // A user accepting an email invite to specific/all projects adds only
@@ -120,13 +126,18 @@ service cloud.firestore {
       allow delete: if isWorkspaceOwner(workspaceId);
 
       match /members/{memberUserId} {
-        allow read: if isWorkspaceMember(workspaceId);
+        allow get: if isWorkspaceMember(workspaceId);
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
         // Admins can manage any member doc; a user can always write their own.
         allow write: if isWorkspaceAdmin(workspaceId) || request.auth.uid == memberUserId;
       }
 
       match /audit_logs/{logId} {
-        allow read: if isWorkspaceAdmin(workspaceId);
+        // Audit logs are admin-only with no member-visible carve-out, so
+        // list checks adminUserIds specifically (see AuditLog.adminUserIds
+        // in lib/types.ts) rather than plain membership.
+        allow get: if isWorkspaceAdmin(workspaceId);
+        allow list: if isSignedIn() && request.auth.uid in resource.data.adminUserIds;
         allow create: if isWorkspaceAdmin(workspaceId)
                       && request.resource.data.actorId == request.auth.uid;
         allow update: if false;
@@ -140,14 +151,26 @@ service cloud.firestore {
       }
 
       match /custom_statuses/{statusId} {
-        allow read: if isWorkspaceMember(workspaceId);
+        allow get: if isWorkspaceMember(workspaceId);
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
         allow create, update, delete: if isWorkspaceOwner(workspaceId);
       }
 
       match /attendance/{attendanceId} {
-        // Read: own entry OR workspace admin
-        allow read: if isSignedIn() &&
+        // Get: own entry OR workspace admin.
+        allow get: if isSignedIn() &&
           (request.auth.uid == resource.data.userId || isWorkspaceAdmin(workspaceId));
+        // List: any workspace member. Some attendance queries (e.g. "who's
+        // checked in today", "who's currently checked in") are
+        // intentionally visible to every member, not just admins — see
+        // the comments on todayTeamAttendanceQuery/openTeamAttendanceQuery
+        // in use-nexus-store.ts. Note this does mean a member could, by
+        // crafting a query directly rather than through the app's UI,
+        // list full attendance history for the workspace rather than only
+        // today's/open entries — a workspace-internal exposure, not an
+        // external one, and a deliberate tradeoff to keep the "visible to
+        // everyone" queries working without a get()-based rule.
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
 
         // Create: only own entry, and must be a workspace member
         allow create: if isSignedIn()
@@ -196,9 +219,12 @@ service cloud.firestore {
       }
 
       match /work_updates/{updateId} {
-        // Read: own update OR workspace admin
-        allow read: if isSignedIn() &&
+        // Get: own update OR workspace admin.
+        allow get: if isSignedIn() &&
           (request.auth.uid == resource.data.userId || isWorkspaceAdmin(workspaceId));
+        // List: any workspace member — see the equivalent note on
+        // attendance's list rule above; same tradeoff applies here.
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
 
         // Create: only own update, and must be a workspace member
         allow create: if isSignedIn()
@@ -213,27 +239,32 @@ service cloud.firestore {
       }
 
       match /projects/{projectId} {
-        allow read: if isWorkspaceMember(workspaceId);
+        allow get: if isWorkspaceMember(workspaceId);
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
         allow create: if isWorkspaceAdmin(workspaceId);
         allow update: if isWorkspaceAdmin(workspaceId) || isSelfGrantingProjectAccess(workspaceId);
         allow delete: if isWorkspaceAdmin(workspaceId);
 
         match /tasks/{taskId} {
-          allow read: if isWorkspaceMember(workspaceId);
+          allow get: if isWorkspaceMember(workspaceId);
+          allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
           allow write: if isWorkspaceMember(workspaceId);
 
           match /subtasks/{subtaskId} {
-            allow read: if isWorkspaceMember(workspaceId);
+            allow get: if isWorkspaceMember(workspaceId);
+            allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
             allow write: if isWorkspaceMember(workspaceId);
           }
 
           match /comments/{commentId} {
-            allow read: if isWorkspaceMember(workspaceId);
+            allow get: if isWorkspaceMember(workspaceId);
+            allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
             allow write: if isWorkspaceMember(workspaceId);
           }
 
           match /attachments/{attachmentId} {
-            allow read: if isWorkspaceMember(workspaceId);
+            allow get: if isWorkspaceMember(workspaceId);
+            allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
             allow write: if isWorkspaceMember(workspaceId);
           }
         }
@@ -249,7 +280,7 @@ service cloud.firestore {
       // alongside members for everyone in the workspace, but nobody can
       // enumerate every invitation in the database anymore.
       allow get: if true;
-      allow list: if isWorkspaceMember(resource.data.workspaceId);
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
 
       allow create: if isSignedIn() && isWorkspaceAdmin(request.resource.data.workspaceId);
 

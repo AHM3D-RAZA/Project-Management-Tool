@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { 
   useUser, 
   useFirestore, 
@@ -25,6 +25,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { Workspace, Project, Task, WorkspaceMember, Invitation, Subtask, AttendanceEntry, AuditLog, CustomStatus, StatusConfig, WorkUpdate } from '@/lib/types';
+import { getMemberUserIds, getAdminUserIds, syncMemberUserIds as syncMemberUserIdsShared } from '@/lib/member-sync';
 import { createNotification, notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned, notifyMentioned, notifyMentionedAssignee } from '@/lib/notifications';
 import { sendWorkspaceInviteEmail } from '@/app/actions/send-workspace-invite-email';
 import { deleteWorkspaceCascade, deleteProjectCascade, deleteTaskCascade } from '@/lib/cascade-delete';
@@ -388,7 +389,9 @@ export function useNexusStore() {
         entityType,
         entityId,
         summary,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        memberUserIds: getMemberUserIds(activeWorkspace),
+        adminUserIds: getAdminUserIds(activeWorkspace),
       };
       setDocumentNonBlocking(logRef, logData, { merge: true });
     } catch (e) {
@@ -438,6 +441,64 @@ export function useNexusStore() {
     }
   }, [db, user?.uid, activeWorkspace?.id, isOwner, currentRole]);
 
+  // Resolve a workspace's current member uids for denormalizing onto a new
+  // document (see getMemberUserIds above). Uses the already-loaded
+  // activeWorkspace when it matches (the common case — avoids an extra
+  // read) and falls back to fetching the workspace doc otherwise.
+  const getMemberUserIdsForWorkspace = useCallback(async (wsId: string): Promise<string[]> => {
+    if (activeWorkspace?.id === wsId) {
+      return getMemberUserIds(activeWorkspace);
+    }
+    if (!db) return [];
+    try {
+      const wsSnap = await getDoc(doc(db, 'workspaces', wsId));
+      if (!wsSnap.exists()) return [];
+      return getMemberUserIds(wsSnap.data() as Workspace);
+    } catch (e) {
+      console.error('Failed to resolve workspace members for denormalization:', e);
+      return [];
+    }
+  }, [db, activeWorkspace]);
+
+  // Propagates a workspace's current member/admin uid lists onto every
+  // EXISTING document across the workspace, whenever membership changes.
+  // New documents get memberUserIds/adminUserIds written at creation time
+  // (see call sites below); this is what keeps documents created *before*
+  // a membership change correct afterward. See lib/member-sync.ts for the
+  // shared implementation (also used by the self-service join page).
+  const syncMemberUserIds = useCallback(async (wsId: string, memberRoles: Workspace['memberRoles']) => {
+    if (!db) return;
+    await syncMemberUserIdsShared(db, wsId, memberRoles);
+  }, [db]);
+
+  // Picks up after a self-service invite acceptance (link/email): that
+  // joining user can't list/backfill pre-existing workspace documents with
+  // their own membership (they're not in those documents' memberUserIds
+  // yet — see lib/member-sync.ts), so they flag pendingMemberSync instead.
+  // Any admin's client resolves it here the next time it has this
+  // workspace loaded, since admins already have full list access to run
+  // the sync themselves.
+  // ⚠️ See /TODO.md — the proper fix (instant, no admin wait) needs a
+  // Cloud Function and the Firebase project on the Blaze plan.
+  const pendingSyncHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    const wsId = activeWorkspace?.id;
+    if (!db || !wsId || !isAdmin || !activeWorkspace?.pendingMemberSync) return;
+    if (pendingSyncHandledRef.current === wsId) return; // already in flight for this workspace
+    pendingSyncHandledRef.current = wsId;
+
+    (async () => {
+      try {
+        await syncMemberUserIdsShared(db, wsId, activeWorkspace.memberRoles);
+        await updateDocumentNonBlocking(doc(db, 'workspaces', wsId), { pendingMemberSync: false });
+      } catch (e) {
+        console.error('Failed to resolve pending member sync:', e);
+      } finally {
+        pendingSyncHandledRef.current = null;
+      }
+    })();
+  }, [db, isAdmin, activeWorkspace?.id, activeWorkspace?.pendingMemberSync, activeWorkspace?.memberRoles]);
+
 
   const createWorkspace = useCallback(async (name: string, description: string) => {
     if (!db || !user) return null;
@@ -462,6 +523,7 @@ export function useNexusStore() {
         displayName: user.displayName || 'User',
         email: user.email?.toLowerCase() || '',
         avatarUrl: user.photoURL || null,
+        memberUserIds: [user.uid],
       }, { merge: true });
       setActiveWorkspaceId(wsRef.id);
       return wsRef.id;
@@ -483,6 +545,7 @@ export function useNexusStore() {
       ...data,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      memberUserIds: await getMemberUserIdsForWorkspace(wsId),
     };
     try {
       await setDocumentNonBlocking(taskRef, taskData, { merge: true });
@@ -505,7 +568,7 @@ export function useNexusStore() {
       console.error("Failed to create task:", e);
       return null;
     }
-  }, [db, user, hasWorkspaceAdminAccess]);
+  }, [db, user, hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace]);
 
   const updateTask = useCallback((taskId: string, data: Partial<Task>) => {
     if (!db || !isAdmin || !user) return;
@@ -582,6 +645,7 @@ export function useNexusStore() {
       ...data,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      memberUserIds: getMemberUserIds(activeWorkspace),
     };
     try {
       await setDocumentNonBlocking(subtaskRef, subtaskData, { merge: true });
@@ -599,7 +663,7 @@ export function useNexusStore() {
       console.error("Failed to create subtask:", e);
       return null;
     }
-  }, [db, user, isAdmin, activeWorkspace?.id, allWorkspaceTasks]);
+  }, [db, user, isAdmin, activeWorkspace, allWorkspaceTasks]);
 
   const updateSubtask = useCallback((taskId: string, subtaskId: string, data: Partial<Subtask>) => {
     if (!db || !isAdmin || !user) return;
@@ -692,6 +756,7 @@ export function useNexusStore() {
         createdAt: new Date().toISOString(),
         expiresAt,
         invitedEmail: normalized,
+        memberUserIds: getMemberUserIds(ws),
         // If none selected: member invites should grant access to all workspace projects on join.
         ...(params.targetProjectIds.length > 0
           ? { targetProjectIds: params.targetProjectIds }
@@ -754,9 +819,12 @@ export function useNexusStore() {
           displayName: targetUser.name || 'User',
           email: (targetUser.email || '').toLowerCase(),
           avatarUrl: targetUser.avatarUrl ?? null,
+          memberUserIds: [...getMemberUserIds(activeWorkspace), targetUser.id],
         },
         { merge: true }
       );
+
+      syncMemberUserIds(wsId, { ...activeWorkspace?.memberRoles, [targetUser.id]: targetRole });
 
       for (const projId of projectIds) {
         const projRef = doc(db, 'workspaces', wsId, 'projects', projId);
@@ -773,7 +841,7 @@ export function useNexusStore() {
 
       logAudit('create', 'member', targetUser.id, `Added "${targetUser.name || targetUser.email || 'Unknown'}" as ${targetRole}`);
     },
-    [db, user, activeWorkspace, isAdmin, logAudit]
+    [db, user, activeWorkspace, isAdmin, logAudit, syncMemberUserIds]
   );
 
   const updateWorkspace = useCallback(async (workspaceId: string, data: Partial<Workspace>) => {
@@ -867,6 +935,7 @@ export function useNexusStore() {
       checkInServerTime: serverTimestamp(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      memberUserIds: getMemberUserIds(activeWorkspace),
     };
 
     try {
@@ -875,7 +944,7 @@ export function useNexusStore() {
       console.error("Failed to check in:", e);
       throw e;
     }
-  }, [db, user, activeWorkspace?.id, todayAttendance, openAttendanceEntry, getTodayDateKey]);
+  }, [db, user, activeWorkspace, todayAttendance, openAttendanceEntry, getTodayDateKey]);
 
   // Undo an accidental check-in. Only allowed within CHECK_IN_GRACE_PERIOD_MS
   // of the check-in itself and only while it's still open (not checked out) —
@@ -991,6 +1060,7 @@ export function useNexusStore() {
       order: maxOrder + 1,
       createdAt: new Date().toISOString(),
       createdBy: user.uid,
+      memberUserIds: getMemberUserIds(activeWorkspace),
     };
 
     try {
@@ -1001,7 +1071,7 @@ export function useNexusStore() {
       console.error("Failed to create custom status:", e);
       throw e;
     }
-  }, [db, user, activeWorkspace?.id, isOwner, allStatuses, workspaceCustomStatuses, logAudit]);
+  }, [db, user, activeWorkspace, isOwner, allStatuses, workspaceCustomStatuses, logAudit]);
 
   const saveWorkUpdate = useCallback(async (updateText: string) => {
     const wsId = activeWorkspace?.id;
@@ -1015,11 +1085,12 @@ export function useNexusStore() {
       updateText: updateText.trim(),
       timestamp: new Date().toISOString(),
       createdAt: new Date().toISOString(),
+      memberUserIds: getMemberUserIds(activeWorkspace),
     };
     
     await setDocumentNonBlocking(workUpdateRef, workUpdateData, { merge: true });
     logAudit('create', 'work_update', workUpdateRef.id, `Added work update`);
-  }, [db, user, activeWorkspace?.id, logAudit]);
+  }, [db, user, activeWorkspace, logAudit]);
 
   return {
     currentUser: user ? { id: user.uid, name: user.displayName || 'User', email: user.email || '', avatarUrl: user.photoURL || null } : null,
@@ -1077,6 +1148,7 @@ export function useNexusStore() {
         createdByUserId: creatorId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        memberUserIds: await getMemberUserIdsForWorkspace(wsId),
       };
       await setDocumentNonBlocking(projRef, projData, { merge: true });
       return projRef.id;
@@ -1120,10 +1192,12 @@ export function useNexusStore() {
       const commentRef = doc(collection(db, 'workspaces', task.workspaceId, 'projects', task.projectId, 'tasks', task.id, 'comments'));
       const commentData = {
         id: commentRef.id,
+        workspaceId: task.workspaceId,
         taskId: task.id,
         authorUserId: user.uid,
         body,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        memberUserIds: task.memberUserIds || getMemberUserIds(activeWorkspace),
       };
       
       await setDocumentNonBlocking(commentRef, commentData, { merge: true });
@@ -1193,11 +1267,13 @@ export function useNexusStore() {
       const attachmentRef = doc(collection(db, 'workspaces', task.workspaceId, 'projects', task.projectId, 'tasks', task.id, 'attachments'));
       const attachmentData = {
         id: attachmentRef.id,
+        workspaceId: task.workspaceId,
         taskId: task.id,
         url,
         displayName: displayName || null,
         addedBy: user.uid,
-        addedAt: new Date().toISOString()
+        addedAt: new Date().toISOString(),
+        memberUserIds: task.memberUserIds || getMemberUserIds(activeWorkspace),
       };
       
       await setDocumentNonBlocking(attachmentRef, attachmentData, { merge: true });
@@ -1225,6 +1301,8 @@ export function useNexusStore() {
       const member = workspaceMembers.find(m => m.userId === userId);
       const memberRef = doc(db, 'workspaces', wsId, 'members', userId);
       await deleteDocumentNonBlocking(memberRef);
+
+      syncMemberUserIds(wsId, roles);
 
       // Clean up ghost references to the removed member: unassign them
       // from any task/subtask in this workspace, and drop them from any
@@ -1287,6 +1365,7 @@ export function useNexusStore() {
         memberRoles: roles,
         updatedAt: new Date().toISOString()
       });
+      syncMemberUserIds(wsId, roles);
       logAudit('update', 'member', userId, `Changed role of "${member?.displayName || 'Unknown'}" to ${newRole}`);
     },
     searchUsersByEmail,

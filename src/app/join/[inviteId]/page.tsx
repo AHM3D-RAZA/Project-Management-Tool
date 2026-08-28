@@ -23,6 +23,7 @@ import {
   type DocumentReference
 } from 'firebase/firestore';
 import { useFirestore, useAuth } from '@/firebase';
+import { getMemberUserIds, syncMemberUserIds } from '@/lib/member-sync';
 import { Loader2, AlertCircle, LogIn, CheckCircle2, Users, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -181,9 +182,13 @@ export default function JoinWorkspacePage() {
 
       if (!isAlreadyMember) {
         // 1. Update Workspace Roles
+        // ⚠️ pendingMemberSync: see /TODO.md ("Instant member backfill on
+        // self-service join") for why this flag exists and what the
+        // proper (Cloud Function, Blaze plan) fix looks like.
         await updateDoc(workspaceRef, {
           [`memberRoles.${user.uid}`]: invitation.role || 'member',
           updatedAt: serverTimestamp(),
+          pendingMemberSync: true,
         });
 
         // 2. Increment usage and complete email invites
@@ -195,6 +200,7 @@ export default function JoinWorkspacePage() {
         }
 
         // 3. Create Member Profile
+        const newMemberUserIds = [...getMemberUserIds({ memberRoles: workspaceData.memberRoles as Record<string, 'owner' | 'lead' | 'member'> }), user.uid];
         const memberRef = doc(db, 'workspaces', invitation.workspaceId, 'members', user.uid);
         await setDoc(memberRef, {
           id: user.uid,
@@ -203,7 +209,18 @@ export default function JoinWorkspacePage() {
           displayName: user.displayName || 'Anonymous',
           email: user.email?.toLowerCase() || '',
           avatarUrl: user.photoURL || null,
+          memberUserIds: newMemberUserIds,
         }, { merge: true });
+
+        // Best-effort: bring pre-existing workspace documents up to date
+        // with the new member. See member-sync.ts for why this may not
+        // fully succeed from a brand-new member's own client — an
+        // existing admin's next add/remove/role-change action will fully
+        // resync.
+        syncMemberUserIds(db, invitation.workspaceId, {
+          ...(workspaceData.memberRoles as Record<string, 'owner' | 'lead' | 'member'>),
+          [user.uid]: (invitation.role || 'member') as 'lead' | 'member',
+        });
       }
 
       // 4. Grant access to projects (project-level scoping)

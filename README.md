@@ -142,6 +142,13 @@ Open `http://localhost:3000`.
 
 You can deploy a Next.js app to Firebase Hosting, but it requires additional setup (SSR / functions / rewrites). If you want this path, tell me your preferred hosting approach (SSR vs static export) and I’ll tailor the exact steps for this codebase.
 
+## Known limitations
+
+See [`TODO.md`](./TODO.md) for tracked follow-ups — currently: instant
+member backfill on self-service workspace join (needs the Firebase
+project on the Blaze plan for a Cloud Function; free-tier workaround is
+already in place).
+
 ## Troubleshooting
 
 - **“Missing or insufficient permissions” (Firestore)**:
