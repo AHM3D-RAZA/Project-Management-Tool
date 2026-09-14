@@ -7,6 +7,7 @@ import { collection, doc } from 'firebase/firestore';
 import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { deleteTaskCascade } from '@/lib/cascade-delete';
 import { notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned } from '@/lib/notifications';
+import { computeNextDueDate } from '@/lib/recurrence';
 import type { Workspace, Task, Subtask, AuditLog } from '@/lib/types';
 import { getMemberUserIds } from '@/lib/member-sync';
 
@@ -20,6 +21,8 @@ interface UseTasksParams {
   hasWorkspaceAdminAccess: (wsId: string) => Promise<boolean>;
   getMemberUserIdsForWorkspace: (wsId: string) => Promise<string[]>;
   logAudit: (action: AuditLog['action'], entityType: AuditLog['entityType'], entityId: string, summary: string) => void;
+  /** Whether a status id counts as "completed" (currently just the built-in 'done' status). Used to detect the moment a recurring task should spin up its next occurrence. */
+  isCompletedStatus: (statusId: string) => boolean;
 }
 
 /**
@@ -28,7 +31,7 @@ interface UseTasksParams {
  */
 export function useTasks({
   db, user, activeWorkspace, isAdmin, allWorkspaceTasks, allWorkspaceSubtasks,
-  hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit,
+  hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus,
 }: UseTasksParams) {
   const createTask = useCallback(async (wsId: string, projectId: string, data: Partial<Task> & { title: string }) => {
     if (!db || !wsId || !projectId || !user) return null;
@@ -67,6 +70,27 @@ export function useTasks({
     }
   }, [db, user, hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace]);
 
+  /**
+   * When a recurring task (one with a `recurrence` rule and a due date)
+   * transitions into a completed status, create its next occurrence:
+   * same details, due date advanced by the rule, status reset to 'todo',
+   * and the same recurrence rule carried forward so the series continues.
+   */
+  const spinOffNextRecurrence = useCallback((t: Task) => {
+    if (!t.recurrence || !t.dueDate) return;
+    createTask(t.workspaceId, t.projectId, {
+      title: t.title,
+      description: t.description,
+      priority: t.priority,
+      assigneeUserIds: t.assigneeUserIds,
+      tags: t.tags,
+      customFields: t.customFields,
+      recurrence: t.recurrence,
+      dueDate: computeNextDueDate(t.dueDate, t.recurrence),
+      status: 'todo',
+    });
+  }, [createTask]);
+
   const updateTask = useCallback((taskId: string, data: Partial<Task>) => {
     if (!db || !isAdmin || !user) return;
     const t = allWorkspaceTasks.find(x => x.id === taskId);
@@ -74,6 +98,12 @@ export function useTasks({
       const ref = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
       updateDocumentNonBlocking(ref, { ...data, updatedAt: new Date().toISOString() });
       logAudit('update', 'task', t.id, `Updated task: ${data.title || t.title}`);
+
+      // Only spin off a next occurrence the moment the task *becomes*
+      // completed (not on every subsequent edit while already done).
+      if (data.status && !isCompletedStatus(t.status) && isCompletedStatus(data.status)) {
+        spinOffNextRecurrence(t);
+      }
 
       // Detect meaningful changes for notification
       const changes: string[] = [];
@@ -127,7 +157,7 @@ export function useTasks({
         }
       });
     }
-  }, [db, allWorkspaceTasks, isAdmin, user, logAudit]);
+  }, [db, allWorkspaceTasks, isAdmin, user, logAudit, isCompletedStatus, spinOffNextRecurrence]);
 
   const deleteTask = useCallback(async (taskId: string) => {
     if (!db || !isAdmin) return;

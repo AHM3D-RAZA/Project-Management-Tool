@@ -44,6 +44,7 @@ import { SubtasksTabContent } from './task-detail/SubtasksTab';
 import { AttachmentsSection } from './task-detail/AttachmentsSection';
 import { CommentsSection } from './task-detail/CommentsSection';
 import { generateGoogleCalendarUrl } from './task-detail/task-detail-utils';
+import { RecurrencePicker } from '@/components/tasks/RecurrencePicker';
 
 export function TaskDetailPanel({
   taskId,
@@ -394,6 +395,14 @@ export function TaskDetailPanel({
                     disabled={!isAdmin}
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight">Repeat</Label>
+                <RecurrencePicker
+                  value={task.recurrence}
+                  onChange={(rule) => handleUpdate('recurrence', rule)}
+                  disabled={!isAdmin}
+                />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight">Assignees</Label>

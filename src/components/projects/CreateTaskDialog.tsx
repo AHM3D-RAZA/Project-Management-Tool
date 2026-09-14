@@ -19,7 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar, Tag as TagIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { NexusStore } from '@/hooks/use-nexus-store';
-import type { Project, Priority, WorkspaceMemberWithRole } from '@/lib/types';
+import type { Project, Priority, RecurrenceRule, WorkspaceMemberWithRole } from '@/lib/types';
+import { RecurrencePicker } from '@/components/tasks/RecurrencePicker';
 
 export function CreateTaskDialog({
   open,
@@ -44,6 +45,7 @@ export function CreateTaskDialog({
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
   const [newTaskAssignees, setNewTaskAssignees] = useState<string[]>([]);
   const [newTaskTags, setNewTaskTags] = useState('');
+  const [newTaskRecurrence, setNewTaskRecurrence] = useState<RecurrenceRule | null>(null);
 
   useEffect(() => {
     if (open && store.currentUser) {
@@ -70,6 +72,7 @@ export function CreateTaskDialog({
         dueDate: newTaskDueDate ? new Date(newTaskDueDate).toISOString() : null,
         assigneeUserIds: newTaskAssignees.length > 0 ? newTaskAssignees : [store.currentUser?.id].filter((id): id is string => !!id),
         tags: tagsArray,
+        recurrence: newTaskRecurrence,
       });
     } catch (error) {
       toast({
@@ -87,6 +90,7 @@ export function CreateTaskDialog({
     setNewTaskDueDate('');
     setNewTaskAssignees([store.currentUser?.id || '']);
     setNewTaskTags('');
+    setNewTaskRecurrence(null);
     onOpenChange(false);
   };
 
@@ -186,6 +190,11 @@ export function CreateTaskDialog({
                 <p className="text-xs text-muted-foreground">No assignees selected</p>
               )}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Repeat</Label>
+            <RecurrencePicker value={newTaskRecurrence} onChange={setNewTaskRecurrence} />
           </div>
 
           <div className="space-y-2">

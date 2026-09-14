@@ -130,6 +130,14 @@ export interface Project {
   memberUserIds: string[];
 }
 
+export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly';
+
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency;
+  /** Repeat every N days/weeks/months, e.g. frequency 'weekly' + interval 2 = every 2 weeks. */
+  interval: number;
+}
+
 export interface Task {
   id: string;
   workspaceId: string;
@@ -147,6 +155,8 @@ export interface Task {
   memberUserIds: string[];
   /** Values for workspace-defined custom fields (see CustomFieldDefinition), keyed by field id. Text only for now. */
   customFields?: Record<string, string>;
+  /** When set, completing this task spins up its next occurrence (see useTasks). Carried forward onto that next task so the series continues. */
+  recurrence?: RecurrenceRule | null;
 }
 
 export interface Subtask {
