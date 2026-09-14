@@ -13,10 +13,31 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useToast } from '@/hooks/use-toast';
 import { Task, Priority, Subtask, WorkspaceMemberWithRole, CurrentUser, StatusConfig } from '@/lib/types';
 import { 
   CheckCircle2, 
-  MoreVertical 
+  MoreVertical,
+  ChevronDown,
+  Trash2,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -36,6 +57,7 @@ export function TaskList({
   tasks, 
   onTaskClick, 
   updateTask,
+  deleteTask,
   readOnly = false,
   subtasks = [],
   workspaceMembers = [],
@@ -45,6 +67,7 @@ export function TaskList({
   tasks: Task[], 
   onTaskClick: (id: string) => void,
   updateTask: (id: string, data: Partial<Task>) => void,
+  deleteTask?: (id: string) => void | Promise<void>,
   readOnly?: boolean,
   subtasks?: Subtask[],
   workspaceMembers?: WorkspaceMemberWithRole[],
@@ -52,18 +75,171 @@ export function TaskList({
   pipelines?: StatusConfig[]
 }) {
   const [mounted, setMounted] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Drop any selected ids that are no longer in view (filtered out, or the
+  // task itself was deleted/moved elsewhere) so the count stays accurate.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const visibleIds = new Set(tasks.map((t) => t.id));
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [tasks]);
+
   const firstPipelineId = pipelines.length > 0 ? pipelines[0].id : 'todo';
+  const allSelected = tasks.length > 0 && selectedIds.size === tasks.length;
+  const someSelected = selectedIds.size > 0 && !allSelected;
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(tasks.map((t) => t.id)));
+  };
+
+  const toggleSelectOne = (taskId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBulkStatusChange = (statusId: string) => {
+    selectedIds.forEach((id) => updateTask(id, { status: statusId }));
+    toast({ title: `Status updated for ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}` });
+    clearSelection();
+  };
+
+  const handleBulkAssign = (memberId: string) => {
+    selectedIds.forEach((id) => updateTask(id, { assigneeUserIds: [memberId] }));
+    toast({ title: `Assigned ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}` });
+    clearSelection();
+  };
+
+  const handleBulkUnassign = () => {
+    selectedIds.forEach((id) => updateTask(id, { assigneeUserIds: [] }));
+    toast({ title: `Unassigned ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}` });
+    clearSelection();
+  };
+
+  const handleBulkDelete = async () => {
+    if (!deleteTask) return;
+    setIsBulkDeleting(true);
+    try {
+      await Promise.all([...selectedIds].map((id) => deleteTask(id)));
+      toast({ title: `Deleted ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}` });
+      clearSelection();
+    } catch (e) {
+      toast({
+        variant: 'destructive',
+        title: 'Failed to delete some tasks',
+        description: e instanceof Error ? e.message : 'Please try again.',
+      });
+    } finally {
+      setIsBulkDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
 
   return (
     <div className="bg-card rounded-lg border overflow-hidden shadow-sm">
+      {!readOnly && selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b bg-muted/40">
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <div className="h-4 w-px bg-border mx-1" />
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                Set status <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {pipelines.map((status) => (
+                <DropdownMenuItem key={status.id} onClick={() => handleBulkStatusChange(status.id)}>
+                  {status.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                Assign to <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {workspaceMembers.map((member) => (
+                <DropdownMenuItem key={member.userId} onClick={() => handleBulkAssign(member.userId)}>
+                  {member.userId === currentUser?.id ? 'You' : (member.displayName || member.email)}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuItem onClick={handleBulkUnassign}>Unassign</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {deleteTask && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-destructive hover:text-destructive"
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </Button>
+          )}
+
+          <Button variant="ghost" size="sm" className="gap-1 ml-auto" onClick={clearSelection}>
+            <X className="h-3.5 w-3.5" />
+            Clear
+          </Button>
+        </div>
+      )}
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} task{selectedIds.size === 1 ? '' : 's'}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will also delete all subtasks, comments, and attachments on {selectedIds.size === 1 ? 'this task' : 'these tasks'}. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleBulkDelete(); }}
+              disabled={isBulkDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isBulkDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Table>
         <TableHeader className="bg-muted/30">
           <TableRow>
+            {!readOnly && (
+              <TableHead className="w-[40px]">
+                <Checkbox
+                  checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Select all tasks"
+                />
+              </TableHead>
+            )}
             <TableHead className="w-[40px]"></TableHead>
             <TableHead className="min-w-[300px]">Task Name</TableHead>
             <TableHead>Status</TableHead>
@@ -77,9 +253,18 @@ export function TaskList({
           {tasks.map((task) => (
             <TableRow 
               key={task.id} 
-              className="cursor-pointer group hover:bg-muted/50"
+              className={cn("cursor-pointer group hover:bg-muted/50", selectedIds.has(task.id) && "bg-muted/40")}
               onClick={() => onTaskClick(task.id)}
             >
+              {!readOnly && (
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selectedIds.has(task.id)}
+                    onCheckedChange={() => toggleSelectOne(task.id)}
+                    aria-label={`Select ${task.title}`}
+                  />
+                </TableCell>
+              )}
               <TableCell onClick={(e) => e.stopPropagation()}>
                 <Checkbox 
                   checked={task.status === 'done'} 

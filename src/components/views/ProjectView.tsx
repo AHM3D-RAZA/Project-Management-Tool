@@ -6,14 +6,21 @@ import {
   Kanban, 
   Plus, 
   Calendar,
-  Tag as TagIcon,
   Loader2,
   Users,
   Settings,
-  Columns
+  Columns,
+  SlidersHorizontal,
+  Download
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { exportTasksToCsv, exportTasksToPdf } from '@/lib/export-tasks';
 import { TaskList } from '../tasks/TaskList';
 import { KanbanBoard } from '../tasks/KanbanBoard';
 import { TaskCalendar } from '../tasks/TaskCalendar';
@@ -21,38 +28,21 @@ import { TaskDetailPanel } from '../tasks/TaskDetailPanel';
 import { EditProjectModal } from '../projects/EditProjectModal';
 import { DeleteProjectButton } from '../projects/DeleteProjectButton';
 import { AddStatusModal } from '../workspaces/AddStatusModal';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger, 
-  DialogFooter,
-  DialogDescription
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from '@/components/ui/select';
-import { Priority, StatusConfig } from '@/lib/types';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Checkbox } from '@/components/ui/checkbox';
-import { useToast } from '@/hooks/use-toast';
+import { ManageCustomFieldsModal } from '../workspaces/ManageCustomFieldsModal';
+import { CreateTaskDialog } from '../projects/CreateTaskDialog';
+import { ProjectTeamDialog } from '../projects/ProjectTeamDialog';
+import { StatusConfig } from '@/lib/types';
 import type { NexusStore } from '@/hooks/use-nexus-store';
 
 export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { store: NexusStore, initialTaskId?: string | null, onInitialTaskConsumed?: () => void }) {
-  const { toast } = useToast();
   const [view, setView] = useState<'list' | 'kanban' | 'calendar'>('list');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
+  const [createTaskDefaultStatus, setCreateTaskDefaultStatus] = useState<string | undefined>(undefined);
   const [isMembersOpen, setIsMembersOpen] = useState(false);
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [isAddStatusOpen, setIsAddStatusOpen] = useState(false);
+  const [isCustomFieldsOpen, setIsCustomFieldsOpen] = useState(false);
 
   // Opens the task a caller (e.g. a notification click) pointed us at.
   // Runs once per distinct initialTaskId; onInitialTaskConsumed lets the
@@ -65,15 +55,6 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTaskId]);
-
-  // Form State
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskDesc, setNewTaskDesc] = useState('');
-  const [newTaskStatus, setNewTaskStatus] = useState('todo');
-  const [newTaskPriority, setNewTaskPriority] = useState<Priority>('medium');
-  const [newTaskDueDate, setNewTaskDueDate] = useState('');
-  const [newTaskAssignees, setNewTaskAssignees] = useState<string[]>([]);
-  const [newTaskTags, setNewTaskTags] = useState('');
 
   const activeProject = store.activeProject;
   const filteredTasks = useMemo(() => {
@@ -104,61 +85,6 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
       color: s.color,
     })) || [];
   }, [store.allStatuses]);
-
-  useEffect(() => {
-    if (isCreateTaskOpen && store.currentUser) {
-      setNewTaskAssignees([store.currentUser.id]);
-    }
-  }, [isCreateTaskOpen, store.currentUser]);
-
-  const handleCreateTask = async () => {
-    if (newTaskTitle && activeProject) {
-      const tagsArray = newTaskTags.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
-      
-      try {
-        await store.createTask(activeProject.workspaceId, activeProject.id, {
-          title: newTaskTitle,
-          description: newTaskDesc,
-          status: newTaskStatus,
-          priority: newTaskPriority,
-          dueDate: newTaskDueDate ? new Date(newTaskDueDate).toISOString() : null,
-          assigneeUserIds: newTaskAssignees.length > 0 ? newTaskAssignees : [store.currentUser?.id].filter((id): id is string => !!id),
-          tags: tagsArray,
-        });
-      } catch (error) {
-        toast({
-          variant: 'destructive',
-          title: 'Could not create task',
-          description: (error instanceof Error ? error.message : null) || 'Please try again.',
-        });
-        return;
-      }
-
-      setNewTaskTitle('');
-      setNewTaskDesc('');
-      setNewTaskStatus('todo');
-      setNewTaskPriority('medium');
-      setNewTaskDueDate('');
-      setNewTaskAssignees([store.currentUser?.id || '']);
-      setNewTaskTags('');
-      setIsCreateTaskOpen(false);
-    }
-  };
-
-  const handleToggleMember = (userId: string) => {
-    if (!activeProject) return;
-    const member = store.workspaceMembers?.find((m) => m.userId === userId);
-    const isSystemAdmin = member?.role === 'owner' || member?.role === 'lead';
-    const isProjectAdmin = Boolean(
-      activeProject.createdByUserId && userId === activeProject.createdByUserId
-    );
-    if (isSystemAdmin || isProjectAdmin) return;
-    const current: string[] = activeProject.allowedUserIds || [];
-    const updated = current.includes(userId)
-      ? current.filter((id: string) => id !== userId)
-      : [...current, userId];
-    store.updateProjectMembers(activeProject.id, updated);
-  };
 
   if (!activeProject) return null;
 
@@ -196,6 +122,41 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
         </div>
 
         <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2 h-8">
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() =>
+                  activeProject && exportTasksToCsv(
+                    activeProject,
+                    filteredTasks,
+                    store.allStatuses || [],
+                    store.workspaceMembers || [],
+                    store.customFieldDefinitions || []
+                  )
+                }
+              >
+                Export as CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  activeProject && exportTasksToPdf(
+                    activeProject,
+                    filteredTasks,
+                    store.allStatuses || [],
+                    store.workspaceMembers || []
+                  )
+                }
+              >
+                Export as PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {store.isOwner && (
             <Button
               variant="outline"
@@ -205,6 +166,17 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
             >
               <Columns className="h-4 w-4" />
               Add Status
+            </Button>
+          )}
+          {store.isOwner && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 h-8"
+              onClick={() => setIsCustomFieldsOpen(true)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Custom Fields
             </Button>
           )}
           {store.isAdmin && (
@@ -225,191 +197,30 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
                 size="sm"
                 className="gap-2 h-8 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
               />
-              <Dialog open={isMembersOpen} onOpenChange={setIsMembersOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2 h-8">
-                    <Users className="h-4 w-4" />
-                    Project Team
-                  </Button>
-                </DialogTrigger>
-              <DialogContent className="sm:max-w-[400px]">
-                <DialogHeader>
-                  <DialogTitle>Project Access</DialogTitle>
-                  <DialogDescription>Assign members who can see this project.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4 max-h-[400px] overflow-y-auto">
-                  {store.workspaceMembers.map((m) => {
-                    // "Admin" in the Project Team UI:
-                    // - Workspace owners/leads are always project admins
-                    // - The user who created the project is also treated as an admin for that project
-                    const isSystemAdmin = m.role === 'owner' || m.role === 'lead';
-                    const isProjectAdmin = Boolean(
-                      activeProject.createdByUserId && m.userId === activeProject.createdByUserId
-                    );
-                    const projectAdmin = isSystemAdmin || isProjectAdmin;
-                    const hasAccess = projectAdmin || (activeProject.allowedUserIds || []).includes(m.userId);
-                    
-                    return (
-                      <div key={m.userId} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={m.avatarUrl ?? undefined} />
-                            <AvatarFallback>{m.displayName?.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium">{m.displayName}</span>
-                            <span className="text-[10px] text-muted-foreground uppercase">
-                              {projectAdmin ? 'admin' : 'member'}
-                            </span>
-                          </div>
-                        </div>
-                        <Checkbox 
-                          checked={hasAccess} 
-                          disabled={projectAdmin}
-                          onCheckedChange={() => handleToggleMember(m.userId)}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </DialogContent>
-            </Dialog>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 h-8"
+                onClick={() => setIsMembersOpen(true)}
+              >
+                <Users className="h-4 w-4" />
+                Project Team
+              </Button>
             </>
           )}
 
           {store.isAdmin && (
-            <Dialog open={isCreateTaskOpen} onOpenChange={setIsCreateTaskOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-2 h-8">
-                  <Plus className="h-4 w-4" />
-                  Add Task
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Create New Task</DialogTitle>
-                  <DialogDescription>Add a new task to {activeProject.name}.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-6 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="task-title">Task Title</Label>
-                    <Input 
-                      id="task-title"
-                      placeholder="E.g. Design homepage hero" 
-                      value={newTaskTitle} 
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Status</Label>
-                      <Select value={newTaskStatus} onValueChange={(val: string) => setNewTaskStatus(val)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {store.allStatuses?.map((status) => (
-                            <SelectItem key={status.id} value={status.id}>
-                              {status.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Priority</Label>
-                      <Select value={newTaskPriority} onValueChange={(val: Priority) => setNewTaskPriority(val)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                          <SelectItem value="urgent">Urgent</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Due Date</Label>
-                      <div className="relative">
-                        <Calendar className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                          type="date" 
-                          className="pl-9" 
-                          value={newTaskDueDate}
-                          onChange={(e) => setNewTaskDueDate(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Assignees</Label>
-                      <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-2">
-                        {eligibleAssignees.map((m) => (
-                          <div key={m.userId} className="flex items-center space-x-2">
-                            <Checkbox 
-                              id={`assignee-${m.userId}`}
-                              checked={newTaskAssignees.includes(m.userId)}
-                              onCheckedChange={(checked) => {
-                                if (checked) {
-                                  setNewTaskAssignees([...newTaskAssignees, m.userId]);
-                                } else {
-                                  setNewTaskAssignees(newTaskAssignees.filter(id => id !== m.userId));
-                                }
-                              }}
-                            />
-                            <Label 
-                              htmlFor={`assignee-${m.userId}`}
-                              className="flex items-center gap-2 cursor-pointer flex-1"
-                            >
-                              <Avatar className="h-4 w-4">
-                                <AvatarImage src={m.avatarUrl ?? undefined} />
-                                <AvatarFallback>{(m.displayName || '?').charAt(0)}</AvatarFallback>
-                              </Avatar>
-                              <span className="truncate text-sm">{m.displayName || 'Unnamed'}</span>
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                      {newTaskAssignees.length === 0 && (
-                        <p className="text-xs text-muted-foreground">No assignees selected</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="task-desc">Description</Label>
-                    <Textarea 
-                      id="task-desc"
-                      placeholder="What needs to be done?" 
-                      value={newTaskDesc}
-                      onChange={(e) => setNewTaskDesc(e.target.value)}
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="task-tags" className="flex items-center gap-1.5">
-                      <TagIcon className="h-3 w-3" /> Tags
-                    </Label>
-                    <Input 
-                      id="task-tags"
-                      placeholder="E.g. Design, Frontend (comma separated)" 
-                      value={newTaskTags}
-                      onChange={(e) => setNewTaskTags(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsCreateTaskOpen(false)}>Cancel</Button>
-                  <Button onClick={handleCreateTask}>Create Task</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <Button
+              size="sm"
+              className="gap-2 h-8"
+              onClick={() => {
+                setCreateTaskDefaultStatus(undefined);
+                setIsCreateTaskOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Add Task
+            </Button>
           )}
         </div>
       </div>
@@ -425,6 +236,7 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
             tasks={filteredTasks} 
             onTaskClick={(id) => setSelectedTaskId(id)} 
             updateTask={store.updateTask}
+            deleteTask={store.deleteTask}
             readOnly={!store.isAdmin}
             subtasks={store.allWorkspaceSubtasks}
             workspaceMembers={store.workspaceMembers}
@@ -446,7 +258,7 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
               updateTask={store.updateTask}
               onAddTask={(status) => {
                 if (store.isAdmin) {
-                  setNewTaskStatus(status);
+                  setCreateTaskDefaultStatus(status);
                   setIsCreateTaskOpen(true);
                 }
               }}
@@ -482,6 +294,34 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
         onAddStatus={store.addCustomStatus}
         existingStatuses={store.allStatuses || []}
       />
+
+      <ManageCustomFieldsModal
+        open={isCustomFieldsOpen}
+        onOpenChange={setIsCustomFieldsOpen}
+        fields={store.customFieldDefinitions || []}
+        onAddField={store.addCustomFieldDefinition}
+        onDeleteField={store.deleteCustomFieldDefinition}
+      />
+
+      {store.isAdmin && (
+        <CreateTaskDialog
+          open={isCreateTaskOpen}
+          onOpenChange={setIsCreateTaskOpen}
+          activeProject={activeProject}
+          store={store}
+          eligibleAssignees={eligibleAssignees}
+          defaultStatus={createTaskDefaultStatus}
+        />
+      )}
+
+      {store.isAdmin && (
+        <ProjectTeamDialog
+          open={isMembersOpen}
+          onOpenChange={setIsMembersOpen}
+          activeProject={activeProject}
+          store={store}
+        />
+      )}
     </div>
   );
 }

@@ -156,6 +156,12 @@ service cloud.firestore {
         allow create, update, delete: if isWorkspaceOwner(workspaceId);
       }
 
+      match /custom_field_definitions/{fieldId} {
+        allow get: if isWorkspaceMember(workspaceId);
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
+        allow create, update, delete: if isWorkspaceOwner(workspaceId);
+      }
+
       match /attendance/{attendanceId} {
         // Get: own entry OR workspace admin.
         allow get: if isSignedIn() &&

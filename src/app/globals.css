@@ -25,6 +25,28 @@
     --ring: 248 64% 50%;
     --radius: 0.75rem;
   }
+
+  .dark {
+    --background: 240 10% 6%;
+    --foreground: 0 0% 95%;
+    --card: 240 8% 10%;
+    --card-foreground: 0 0% 95%;
+    --popover: 240 8% 10%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 248 70% 65%; /* same violet hue, lifted for dark backgrounds */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 16%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 240 6% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 211 83% 67%; /* same accent blue works well on dark too */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 6% 20%;
+    --input: 240 6% 20%;
+    --ring: 248 70% 65%;
+  }
 }
 
 @layer base {

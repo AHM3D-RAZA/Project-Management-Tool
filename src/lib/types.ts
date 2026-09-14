@@ -2,6 +2,15 @@
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
 export type Status = 'todo' | 'in_progress' | 'on_hold' | 'done';
 
+export interface CustomFieldDefinition {
+  id: string;
+  name: string;
+  createdAt: string;
+  createdBy: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
+}
+
 export interface CustomStatus {
   id: string;
   name: string;
@@ -136,6 +145,8 @@ export interface Task {
   updatedAt: string;
   /** See CustomStatus.memberUserIds for why this exists. */
   memberUserIds: string[];
+  /** Values for workspace-defined custom fields (see CustomFieldDefinition), keyed by field id. Text only for now. */
+  customFields?: Record<string, string>;
 }
 
 export interface Subtask {
@@ -263,7 +274,7 @@ export interface AuditLog {
   actorId: string;
   actorRole: 'owner' | 'lead';
   action: 'update' | 'delete' | 'create' | 'revoke' | 'remove';
-  entityType: 'project' | 'task' | 'workspace' | 'member' | 'invitation' | 'subtask' | 'comment' | 'custom_status' | 'attachment' | 'work_update';
+  entityType: 'project' | 'task' | 'workspace' | 'member' | 'invitation' | 'subtask' | 'comment' | 'custom_status' | 'custom_field' | 'attachment' | 'work_update';
   entityId: string;
   summary: string;
   timestamp: string;

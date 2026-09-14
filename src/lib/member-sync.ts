@@ -86,6 +86,7 @@ export async function syncMemberUserIds(
       collectFromQuery(query(collection(db, 'workspaces', wsId, 'attendance'))),
       collectFromQuery(query(collection(db, 'workspaces', wsId, 'work_updates'))),
       collectFromQuery(query(collection(db, 'workspaces', wsId, 'custom_statuses'))),
+      collectFromQuery(query(collection(db, 'workspaces', wsId, 'custom_field_definitions'))),
       collectFromQuery(query(collection(db, 'workspaces', wsId, 'audit_logs'))),
       collectFromQuery(query(collection(db, 'workspaces', wsId, 'members'))),
       collectFromQuery(query(collection(db, 'invitations'), where('workspaceId', '==', wsId))),
