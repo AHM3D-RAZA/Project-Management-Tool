@@ -151,6 +151,18 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Running tests
+
+Unit tests cover the pure logic in `src/lib` (recurrence math, @mention
+parsing, class-name merging, member/admin id derivation) using
+[Vitest](https://vitest.dev). No Firebase project or `.env.local` is
+needed to run them.
+
+```bash
+npm test             # run once
+npm run test:watch   # re-run on file changes
+```
+
 ## Notes on invites
 
 - Workspace admins can invite by **email**

@@ -146,17 +146,23 @@ export function getCurrentMentionQuery(
 }
 
 /**
- * Replace the current @mention with a selected user
+ * Replace the in-progress @query (the text typed between '@' and the
+ * cursor, e.g. "Jo") with the selected member's full display name.
+ *
+ * Takes the exact query length rather than guessing where it ends by
+ * searching for the next whitespace — searching for whitespace breaks as
+ * soon as the query is immediately followed by punctuation with no space
+ * (e.g. "@Jo, are you free?"), which would incorrectly swallow that
+ * punctuation into the replacement.
  */
 export function replaceMention(
   text: string,
   startIndex: number,
-  displayName: string
+  displayName: string,
+  currentQueryLength: number
 ): string {
   const beforeMention = text.slice(0, startIndex);
-  const afterMention = text.slice(startIndex);
-  const mentionEnd = afterMention.search(/[\s\n]/);
-  const actualEnd = mentionEnd === -1 ? afterMention.length : mentionEnd;
+  const afterQuery = text.slice(startIndex + 1 + currentQueryLength);
 
-  return beforeMention + `@${displayName}` + afterMention.slice(actualEnd);
+  return beforeMention + `@${displayName}` + afterQuery;
 }

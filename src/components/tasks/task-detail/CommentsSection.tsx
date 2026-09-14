@@ -119,7 +119,7 @@ export function CommentsSection({ task, store, eligibleAssignees, mounted }: {
   };
 
   const handleMentionSelect = (member: { userId: string; displayName: string }) => {
-    const updatedText = replaceMention(newComment, mentionStartIndex, member.displayName);
+    const updatedText = replaceMention(newComment, mentionStartIndex, member.displayName, mentionQuery.length);
     setNewComment(updatedText);
     setShowMentionDropdown(false);
 
