@@ -17,6 +17,7 @@ A modern project + task management app built with **Next.js (App Router)**, **Ty
 - **Tailwind CSS** + shadcn/ui
 - **Firebase Auth** + **Cloud Firestore**
 - **Resend** (email delivery) via server action + `fetch`
+- **Sentry** (error tracking, optional)
 
 ## Prerequisites
 
@@ -92,6 +93,32 @@ To set up Google Drive Picker:
    - Copy the client ID to `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
 5. Create API credentials (API key)
    - Copy the API key to `NEXT_PUBLIC_GOOGLE_API_KEY`
+
+### Error tracking (optional)
+
+The app is wired up to report unhandled errors — both in the browser (via
+the `error.tsx`/`global-error.tsx` boundaries) and on the server (via
+`src/instrumentation.ts`) — to [Sentry](https://sentry.io). Without a DSN
+configured, this is a complete no-op: nothing is sent anywhere, and no
+Sentry account is required to run the app.
+
+To turn it on, create a Sentry project and add:
+
+```bash
+NEXT_PUBLIC_SENTRY_DSN="https://...@....ingest.sentry.io/..."
+```
+
+(Optional, for readable stack traces) to upload source maps at build time,
+also add:
+
+```bash
+SENTRY_ORG="your-org-slug"
+SENTRY_PROJECT="your-project-slug"
+SENTRY_AUTH_TOKEN="your-auth-token"
+```
+
+If these three aren't set, the build still succeeds — it just skips the
+source map upload with a warning.
 
 ## 4) Deploy Firestore security rules
 

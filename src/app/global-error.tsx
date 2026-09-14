@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import * as Sentry from '@sentry/nextjs';
 
 // This catches errors thrown from within the root layout itself — notably
 // FirebaseErrorListener (see src/components/FirebaseErrorListener.tsx),
@@ -19,6 +20,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error('Unhandled root-level app error:', error);
+    Sentry.captureException(error);
   }, [error]);
 
   return (

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import * as Sentry from '@sentry/nextjs';
 import { AlertTriangle, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -16,6 +17,7 @@ export default function GlobalError({
     // Still surfaces in the browser console / dev overlay for debugging —
     // this page is just what the person sees instead of a blank/broken screen.
     console.error('Unhandled app error:', error);
+    Sentry.captureException(error);
   }, [error]);
 
   return (
