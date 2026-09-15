@@ -83,8 +83,8 @@ async function deleteQueryBatched(
 }
 
 /**
- * Deletes a task's subtasks, comments, and attachments, then the task
- * document itself (last, once its children are confirmed gone).
+ * Deletes a task's subtasks, comments, attachments, and activity history,
+ * then the task document itself (last, once its children are confirmed gone).
  */
 export async function deleteTaskCascade(
   db: Firestore,
@@ -94,6 +94,7 @@ export async function deleteTaskCascade(
   await deleteQueryBatched(db, collection(taskRef, 'subtasks'), onProgress);
   await deleteQueryBatched(db, collection(taskRef, 'comments'), onProgress);
   await deleteQueryBatched(db, collection(taskRef, 'attachments'), onProgress);
+  await deleteQueryBatched(db, collection(taskRef, 'activity'), onProgress);
   await deleteDoc(taskRef);
   onProgress?.(1);
 }

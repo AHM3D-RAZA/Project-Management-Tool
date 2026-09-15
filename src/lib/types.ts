@@ -202,6 +202,27 @@ export interface Attachment {
   memberUserIds: string[];
 }
 
+/**
+ * One entry in a task's activity history (subcollection under the task —
+ * see src/hooks/store/use-tasks.ts, which writes one of these whenever
+ * the task is created or a tracked field changes). Distinct from Comment:
+ * this is system-generated, not user-written, and immutable once created.
+ */
+export interface TaskActivityEntry {
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  taskId: string;
+  actorId: string;
+  actorName: string;
+  /** Human-readable description of what happened, e.g. "Status changed to Done". */
+  summary: string;
+  createdAt: string;
+  /** See CustomStatus.memberUserIds for why this exists. */
+  memberUserIds: string[];
+}
+
+
 export interface Invitation {
   id: string;
   workspaceId: string;

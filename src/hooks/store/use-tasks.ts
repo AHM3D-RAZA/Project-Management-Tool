@@ -8,7 +8,8 @@ import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlo
 import { deleteTaskCascade } from '@/lib/cascade-delete';
 import { notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned } from '@/lib/notifications';
 import { computeNextDueDate } from '@/lib/recurrence';
-import type { Workspace, Task, Subtask, AuditLog } from '@/lib/types';
+import { describeTaskChanges } from '@/lib/task-activity';
+import type { Workspace, Task, Subtask, AuditLog, StatusConfig, TaskActivityEntry } from '@/lib/types';
 import { getMemberUserIds } from '@/lib/member-sync';
 
 interface UseTasksParams {
@@ -23,6 +24,8 @@ interface UseTasksParams {
   logAudit: (action: AuditLog['action'], entityType: AuditLog['entityType'], entityId: string, summary: string) => void;
   /** Whether a status id counts as "completed" (currently just the built-in 'done' status). Used to detect the moment a recurring task should spin up its next occurrence. */
   isCompletedStatus: (statusId: string) => boolean;
+  /** Resolves a status id to its display info (name/color). Used to write human-readable status names into task activity history. */
+  getStatusInfo: (statusId: string) => StatusConfig;
 }
 
 /**
@@ -31,8 +34,37 @@ interface UseTasksParams {
  */
 export function useTasks({
   db, user, activeWorkspace, isAdmin, allWorkspaceTasks, allWorkspaceSubtasks,
-  hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus,
+  hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus, getStatusInfo,
 }: UseTasksParams) {
+  /**
+   * Writes one entry to a task's activity subcollection. `memberUserIds`
+   * is passed in rather than looked up here, since every call site
+   * (createTask, updateTask) already has an accurate list on hand for the
+   * specific task/workspace involved.
+   */
+  const logTaskActivity = useCallback((
+    wsId: string, projectId: string, taskId: string, summary: string, memberUserIds: string[]
+  ) => {
+    if (!db || !user) return;
+    const activityRef = doc(collection(db, 'workspaces', wsId, 'projects', projectId, 'tasks', taskId, 'activity'));
+    const entry: TaskActivityEntry = {
+      id: activityRef.id,
+      workspaceId: wsId,
+      projectId,
+      taskId,
+      actorId: user.uid,
+      actorName: user.displayName || 'User',
+      summary,
+      createdAt: new Date().toISOString(),
+      memberUserIds,
+    };
+    try {
+      setDocumentNonBlocking(activityRef, entry, { merge: true });
+    } catch (e) {
+      console.error('Failed to log task activity', e);
+    }
+  }, [db, user]);
+
   const createTask = useCallback(async (wsId: string, projectId: string, data: Partial<Task> & { title: string }) => {
     if (!db || !wsId || !projectId || !user) return null;
     const canCreateTask = await hasWorkspaceAdminAccess(wsId);
@@ -49,6 +81,7 @@ export function useTasks({
     };
     try {
       await setDocumentNonBlocking(taskRef, taskData, { merge: true });
+      logTaskActivity(wsId, projectId, taskRef.id, 'Created this task', taskData.memberUserIds);
 
       // Notify assignees if they're not the current user
       if (data.assigneeUserIds && data.assigneeUserIds.length > 0) {
@@ -68,7 +101,7 @@ export function useTasks({
       console.error("Failed to create task:", e);
       return null;
     }
-  }, [db, user, hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace]);
+  }, [db, user, hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logTaskActivity]);
 
   /**
    * When a recurring task (one with a `recurrence` rule and a due date)
@@ -104,6 +137,11 @@ export function useTasks({
       if (data.status && !isCompletedStatus(t.status) && isCompletedStatus(data.status)) {
         spinOffNextRecurrence(t);
       }
+
+      // Record one activity history entry per field that actually changed.
+      describeTaskChanges(t, data, getStatusInfo).forEach((summary) => {
+        logTaskActivity(t.workspaceId, t.projectId, t.id, summary, t.memberUserIds);
+      });
 
       // Detect meaningful changes for notification
       const changes: string[] = [];
@@ -157,7 +195,7 @@ export function useTasks({
         }
       });
     }
-  }, [db, allWorkspaceTasks, isAdmin, user, logAudit, isCompletedStatus, spinOffNextRecurrence]);
+  }, [db, allWorkspaceTasks, isAdmin, user, logAudit, isCompletedStatus, spinOffNextRecurrence, getStatusInfo, logTaskActivity]);
 
   const deleteTask = useCallback(async (taskId: string) => {
     if (!db || !isAdmin) return;

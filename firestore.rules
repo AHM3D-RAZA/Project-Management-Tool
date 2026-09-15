@@ -273,6 +273,19 @@ service cloud.firestore {
             allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
             allow write: if isWorkspaceMember(workspaceId);
           }
+
+          match /activity/{activityId} {
+            // System-generated history, not user-written — same
+            // visibility as comments/attachments, but immutable once
+            // created (like audit_logs) and only removable via the
+            // admin-driven cascade delete of the task itself.
+            allow get: if isWorkspaceMember(workspaceId);
+            allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
+            allow create: if isWorkspaceMember(workspaceId)
+                          && request.resource.data.actorId == request.auth.uid;
+            allow update: if false;
+            allow delete: if isWorkspaceAdmin(workspaceId);
+          }
         }
       }
     }

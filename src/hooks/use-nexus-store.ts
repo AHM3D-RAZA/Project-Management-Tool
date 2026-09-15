@@ -131,7 +131,7 @@ export function useNexusStore() {
 
   const { createTask, updateTask, deleteTask, createSubtask, updateSubtask, deleteSubtask } = useTasks({
     db, user, activeWorkspace, isAdmin, allWorkspaceTasks, allWorkspaceSubtasks,
-    hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus,
+    hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus, getStatusInfo,
   });
 
   const { addComment, updateComment, deleteComment, addAttachment, removeAttachment } = useCommentsAttachments({
