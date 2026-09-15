@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import type { Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
+import type { FirebaseStorage } from 'firebase/storage';
 import { collection, doc } from 'firebase/firestore';
 import { setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { deleteWorkspaceCascade } from '@/lib/cascade-delete';
@@ -17,6 +18,8 @@ interface UseWorkspaceMutationsParams {
   logAudit: (action: AuditLog['action'], entityType: AuditLog['entityType'], entityId: string, summary: string) => void;
   setActiveWorkspaceId: (id: string) => void;
   setDeletionProgress: (value: DeletionProgress | null | ((prev: DeletionProgress | null) => DeletionProgress | null)) => void;
+  /** Used to also clean up uploaded attachment Storage files across every task being deleted. */
+  storage: FirebaseStorage | null;
 }
 
 /**
@@ -26,7 +29,7 @@ interface UseWorkspaceMutationsParams {
  * these are called after both use-workspace-core and use-audit-log.
  */
 export function useWorkspaceMutations({
-  db, user, isOwner, workspaces, logAudit, setActiveWorkspaceId, setDeletionProgress,
+  db, user, isOwner, workspaces, logAudit, setActiveWorkspaceId, setDeletionProgress, storage,
 }: UseWorkspaceMutationsParams) {
   const createWorkspace = useCallback(async (name: string, description: string) => {
     if (!db || !user) return null;
@@ -86,14 +89,14 @@ export function useWorkspaceMutations({
     try {
       await deleteWorkspaceCascade(db, workspaceId, (delta) => {
         setDeletionProgress(prev => (prev ? { ...prev, count: prev.count + delta } : prev));
-      });
+      }, storage);
     } catch (e) {
       console.error("Failed to delete workspace:", e);
       throw e;
     } finally {
       setDeletionProgress(null);
     }
-  }, [db, isOwner, user, workspaces, setDeletionProgress]);
+  }, [db, isOwner, user, workspaces, setDeletionProgress, storage]);
 
   return {
     createWorkspace,

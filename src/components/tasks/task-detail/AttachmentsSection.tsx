@@ -194,7 +194,7 @@ export function AttachmentsSection({ taskId, workspaceId, store, isAdmin, attach
                     className="h-7 w-7 shrink-0 text-destructive opacity-0 group-hover:opacity-100"
                     onClick={() => {
                       if (confirm('Remove this attachment?')) {
-                        store.removeAttachment(taskId, attachment.id);
+                        store.removeAttachment(taskId, attachment.id, attachment.url);
                       }
                     }}
                   >

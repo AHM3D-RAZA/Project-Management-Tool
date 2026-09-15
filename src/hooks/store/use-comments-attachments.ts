@@ -3,9 +3,11 @@
 import { useCallback } from 'react';
 import type { Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
+import type { FirebaseStorage } from 'firebase/storage';
 import { collection, doc } from 'firebase/firestore';
 import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { createNotification, notifyMentioned, notifyMentionedAssignee } from '@/lib/notifications';
+import { deleteStorageFileIfPresent } from '@/lib/file-upload';
 import type { Workspace, Task, AuditLog } from '@/lib/types';
 import { getMemberUserIds } from '@/lib/member-sync';
 
@@ -15,13 +17,15 @@ interface UseCommentsAttachmentsParams {
   activeWorkspace: Workspace | null;
   allWorkspaceTasks: Task[];
   logAudit: (action: AuditLog['action'], entityType: AuditLog['entityType'], entityId: string, summary: string) => void;
+  /** Used to also delete the underlying Storage file when an uploaded attachment is removed — see removeAttachment. */
+  storage: FirebaseStorage | null;
 }
 
 /**
  * A task's comments and attachments — the supplementary content on a
  * task, as opposed to the task's own fields (which live in use-tasks.ts).
  */
-export function useCommentsAttachments({ db, user, activeWorkspace, allWorkspaceTasks, logAudit }: UseCommentsAttachmentsParams) {
+export function useCommentsAttachments({ db, user, activeWorkspace, allWorkspaceTasks, logAudit, storage }: UseCommentsAttachmentsParams) {
   const addComment = useCallback(async (taskId: string, body: string, mentionedUserIds: string[] = []) => {
     if (!db || !user || !taskId) return;
     const task = allWorkspaceTasks.find(t => t.id === taskId);
@@ -121,7 +125,7 @@ export function useCommentsAttachments({ db, user, activeWorkspace, allWorkspace
     logAudit('create', 'attachment', attachmentRef.id, `Added attachment to task "${task.title}"`);
   }, [db, user, activeWorkspace, allWorkspaceTasks, logAudit]);
 
-  const removeAttachment = useCallback(async (taskId: string, attachmentId: string) => {
+  const removeAttachment = useCallback(async (taskId: string, attachmentId: string, url?: string) => {
     if (!db || !user || !taskId || !attachmentId) return;
     const task = allWorkspaceTasks.find(t => t.id === taskId);
     if (!task) return;
@@ -129,7 +133,14 @@ export function useCommentsAttachments({ db, user, activeWorkspace, allWorkspace
     const attachmentRef = doc(db, 'workspaces', task.workspaceId, 'projects', task.projectId, 'tasks', task.id, 'attachments', attachmentId);
     await deleteDocumentNonBlocking(attachmentRef);
     logAudit('delete', 'attachment', attachmentId, `Deleted attachment from task "${task.title}"`);
-  }, [db, user, allWorkspaceTasks, logAudit]);
+
+    // Best-effort — if this was an uploaded file (not a pasted link or a
+    // Drive pick), also remove it from Storage so it doesn't linger as
+    // an orphaned, unbilled-for-nothing object. See deleteStorageFileIfPresent.
+    if (storage && url) {
+      await deleteStorageFileIfPresent(storage, url);
+    }
+  }, [db, user, allWorkspaceTasks, logAudit, storage]);
 
   return {
     addComment,

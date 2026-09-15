@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import type { Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
+import type { FirebaseStorage } from 'firebase/storage';
 import { collection, doc } from 'firebase/firestore';
 import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { deleteTaskCascade } from '@/lib/cascade-delete';
@@ -27,6 +28,8 @@ interface UseTasksParams {
   isCompletedStatus: (statusId: string) => boolean;
   /** Resolves a status id to its display info (name/color). Used to write human-readable status names into task activity history. */
   getStatusInfo: (statusId: string) => StatusConfig;
+  /** Used to also clean up an uploaded attachment's Storage file when the task (and its attachments) are deleted. */
+  storage: FirebaseStorage | null;
 }
 
 /**
@@ -35,7 +38,7 @@ interface UseTasksParams {
  */
 export function useTasks({
   db, user, activeWorkspace, isAdmin, allWorkspaceTasks, allWorkspaceSubtasks,
-  hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus, getStatusInfo,
+  hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus, getStatusInfo, storage,
 }: UseTasksParams) {
   /**
    * Writes one entry to a task's activity subcollection. `memberUserIds`
@@ -236,13 +239,13 @@ export function useTasks({
     if (!t) return;
     const taskRef = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
     try {
-      await deleteTaskCascade(db, taskRef);
+      await deleteTaskCascade(db, taskRef, undefined, storage);
       logAudit('delete', 'task', taskId, `Deleted task "${t.title}"`);
     } catch (e) {
       console.error("Failed to delete task:", e);
       throw e;
     }
-  }, [db, isAdmin, allWorkspaceTasks, logAudit]);
+  }, [db, isAdmin, allWorkspaceTasks, logAudit, storage]);
 
   const createSubtask = useCallback(async (taskId: string, projectId: string, data: Partial<Subtask>) => {
     const wsId = activeWorkspace?.id;

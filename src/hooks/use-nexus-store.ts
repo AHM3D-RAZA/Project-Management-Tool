@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useMemo } from 'react';
-import { useUser, useFirestore, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useUser, useFirestore, useStorage, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collectionGroup, doc, query, where } from 'firebase/firestore';
 import { Task, Subtask } from '@/lib/types';
 import { useWorkspaceCore } from '@/hooks/store/use-workspace-core';
@@ -32,6 +32,7 @@ import { useInvitations } from '@/hooks/store/use-invitations';
 export function useNexusStore() {
   const { user, isAuthReady } = useUser();
   const db = useFirestore();
+  const storage = useStorage();
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
   const {
@@ -105,7 +106,7 @@ export function useNexusStore() {
   });
 
   const { projects, activeProject, createProject, updateProject, deleteProject, updateProjectMembers } = useProjects({
-    db, user, activeWorkspace, activeProjectId, isAuthReady, isAdmin, logAudit, getMemberUserIdsForWorkspace, setDeletionProgress,
+    db, user, activeWorkspace, activeProjectId, isAuthReady, isAdmin, logAudit, getMemberUserIdsForWorkspace, setDeletionProgress, storage,
   });
 
   const allWorkspaceTasks = useMemo(() => {
@@ -131,11 +132,11 @@ export function useNexusStore() {
 
   const { createTask, updateTask, deleteTask, createSubtask, updateSubtask, deleteSubtask } = useTasks({
     db, user, activeWorkspace, isAdmin, allWorkspaceTasks, allWorkspaceSubtasks,
-    hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus, getStatusInfo,
+    hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus, getStatusInfo, storage,
   });
 
   const { addComment, updateComment, deleteComment, addAttachment, removeAttachment } = useCommentsAttachments({
-    db, user, activeWorkspace, allWorkspaceTasks, logAudit,
+    db, user, activeWorkspace, allWorkspaceTasks, logAudit, storage,
   });
 
   const { workspaceMembers, searchUsersByEmail, directAddMember, removeMember, updateMemberRole } = useMembers({
@@ -147,7 +148,7 @@ export function useNexusStore() {
   });
 
   const { createWorkspace, updateWorkspace, deleteWorkspace } = useWorkspaceMutations({
-    db, user, isOwner, workspaces, logAudit, setActiveWorkspaceId, setDeletionProgress,
+    db, user, isOwner, workspaces, logAudit, setActiveWorkspaceId, setDeletionProgress, storage,
   });
 
   return {

@@ -28,11 +28,17 @@
  *    a Cloud Function surviving a closed tab can promise that. What this
  *    gets you instead: bounded batches, visible progress, and safe,
  *    idempotent resumption if something interrupts it.
+ *  - Uploaded attachment files in Firebase Storage are cleaned up
+ *    best-effort alongside their Firestore records (see
+ *    deleteAttachmentsBatched) — always before the workspace document is
+ *    deleted, since Storage rules read that same document via
+ *    firestore.get() to authorize the delete.
  */
 
 import {
   type Firestore,
   type Query,
+  type CollectionReference,
   type DocumentReference,
   collection,
   query,
@@ -43,6 +49,8 @@ import {
   deleteDoc,
   doc,
 } from 'firebase/firestore';
+import type { FirebaseStorage } from 'firebase/storage';
+import { deleteStorageFileIfPresent } from '@/lib/file-upload';
 
 // Stay comfortably under Firestore's 500-operation-per-batch ceiling.
 const DELETE_BATCH_SIZE = 400;
@@ -83,17 +91,60 @@ async function deleteQueryBatched(
 }
 
 /**
+ * Same as deleteQueryBatched, but for the 'attachments' collection
+ * specifically: before deleting each page of attachment docs, also
+ * best-effort deletes any of their files that live in Storage (uploaded
+ * files only — see deleteStorageFileIfPresent for why pasted links and
+ * Drive picks are silently skipped). Storage cleanup is skipped entirely
+ * when `storage` is null, so callers that don't have a Storage instance
+ * on hand still get correct (just not Storage-cleaned-up) deletion.
+ */
+async function deleteAttachmentsBatched(
+  db: Firestore,
+  storage: FirebaseStorage | null,
+  attachmentsCol: CollectionReference,
+  onProgress?: ProgressCallback
+): Promise<number> {
+  let totalDeleted = 0;
+  while (true) {
+    const pageQuery = query(attachmentsCol, limit(DELETE_BATCH_SIZE));
+    const snap = await getDocs(pageQuery);
+    if (snap.empty) break;
+
+    if (storage) {
+      await Promise.all(snap.docs.map((d) => {
+        const url = d.data().url as string | undefined;
+        return url ? deleteStorageFileIfPresent(storage, url) : Promise.resolve();
+      }));
+    }
+
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+
+    totalDeleted += snap.docs.length;
+    onProgress?.(snap.docs.length);
+
+    if (snap.docs.length < DELETE_BATCH_SIZE) break;
+  }
+  return totalDeleted;
+}
+
+/**
  * Deletes a task's subtasks, comments, attachments, and activity history,
  * then the task document itself (last, once its children are confirmed gone).
+ * `storage`, if provided, is used to also clean up any uploaded attachment
+ * files — see deleteAttachmentsBatched.
  */
 export async function deleteTaskCascade(
   db: Firestore,
   taskRef: DocumentReference,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  storage?: FirebaseStorage | null
 ): Promise<void> {
   await deleteQueryBatched(db, collection(taskRef, 'subtasks'), onProgress);
   await deleteQueryBatched(db, collection(taskRef, 'comments'), onProgress);
-  await deleteQueryBatched(db, collection(taskRef, 'attachments'), onProgress);
+  await deleteAttachmentsBatched(db, storage ?? null, collection(taskRef, 'attachments'), onProgress);
   await deleteQueryBatched(db, collection(taskRef, 'activity'), onProgress);
   await deleteDoc(taskRef);
   onProgress?.(1);
@@ -107,7 +158,8 @@ export async function deleteProjectCascade(
   db: Firestore,
   workspaceId: string,
   projectId: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  storage?: FirebaseStorage | null
 ): Promise<void> {
   const tasksCol = collection(db, 'workspaces', workspaceId, 'projects', projectId, 'tasks');
 
@@ -116,7 +168,7 @@ export async function deleteProjectCascade(
     if (snap.empty) break;
 
     for (const taskDoc of snap.docs) {
-      await deleteTaskCascade(db, taskDoc.ref, onProgress);
+      await deleteTaskCascade(db, taskDoc.ref, onProgress, storage);
     }
 
     if (snap.docs.length < PARENT_PAGE_SIZE) break;
@@ -139,7 +191,8 @@ export async function deleteProjectCascade(
 export async function deleteWorkspaceCascade(
   db: Firestore,
   workspaceId: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  storage?: FirebaseStorage | null
 ): Promise<void> {
   const projectsCol = collection(db, 'workspaces', workspaceId, 'projects');
 
@@ -148,7 +201,7 @@ export async function deleteWorkspaceCascade(
     if (snap.empty) break;
 
     for (const projDoc of snap.docs) {
-      await deleteProjectCascade(db, workspaceId, projDoc.id, onProgress);
+      await deleteProjectCascade(db, workspaceId, projDoc.id, onProgress, storage);
     }
 
     if (snap.docs.length < PARENT_PAGE_SIZE) break;

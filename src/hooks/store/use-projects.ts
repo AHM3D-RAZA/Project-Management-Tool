@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from 'react';
 import type { Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
+import type { FirebaseStorage } from 'firebase/storage';
 import { collection, doc, query } from 'firebase/firestore';
 import { useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { deleteProjectCascade } from '@/lib/cascade-delete';
@@ -24,6 +25,8 @@ interface UseProjectsParams {
   logAudit: (action: AuditLog['action'], entityType: AuditLog['entityType'], entityId: string, summary: string) => void;
   getMemberUserIdsForWorkspace: (wsId: string) => Promise<string[]>;
   setDeletionProgress: (value: DeletionProgress | null | ((prev: DeletionProgress | null) => DeletionProgress | null)) => void;
+  /** Used to also clean up uploaded attachment Storage files when a project's tasks are deleted. */
+  storage: FirebaseStorage | null;
 }
 
 /**
@@ -32,7 +35,7 @@ interface UseProjectsParams {
  * one, and create/update/delete/member-access mutations.
  */
 export function useProjects({
-  db, user, activeWorkspace, activeProjectId, isAuthReady, isAdmin, logAudit, getMemberUserIdsForWorkspace, setDeletionProgress,
+  db, user, activeWorkspace, activeProjectId, isAuthReady, isAdmin, logAudit, getMemberUserIdsForWorkspace, setDeletionProgress, storage,
 }: UseProjectsParams) {
   const projectsQuery = useMemoFirebase(() => {
     const wsId = activeWorkspace?.id;
@@ -97,7 +100,7 @@ export function useProjects({
     try {
       await deleteProjectCascade(db, wsId, projectId, (delta) => {
         setDeletionProgress(prev => (prev ? { ...prev, count: prev.count + delta } : prev));
-      });
+      }, storage);
       logAudit('delete', 'project', projectId, `Deleted project "${project?.name || 'Unknown'}"`);
     } catch (e) {
       console.error("Failed to delete project:", e);
@@ -105,7 +108,7 @@ export function useProjects({
     } finally {
       setDeletionProgress(null);
     }
-  }, [db, isAdmin, user, activeWorkspace?.id, projects, logAudit, setDeletionProgress]);
+  }, [db, isAdmin, user, activeWorkspace?.id, projects, logAudit, setDeletionProgress, storage]);
 
   return {
     projects,
