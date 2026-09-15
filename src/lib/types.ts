@@ -157,6 +157,14 @@ export interface Task {
   customFields?: Record<string, string>;
   /** When set, completing this task spins up its next occurrence (see useTasks). Carried forward onto that next task so the series continues. */
   recurrence?: RecurrenceRule | null;
+  /**
+   * IDs of tasks that must reach a completed status before this task can
+   * be marked done (see task-dependencies.ts and useTasks.updateTask).
+   * Only this direction is stored — which tasks THIS task blocks is
+   * derived by scanning other tasks for this task's id, so the two sides
+   * can never drift out of sync.
+   */
+  blockedByTaskIds?: string[];
 }
 
 export interface Subtask {

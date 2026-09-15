@@ -9,6 +9,7 @@ import { deleteTaskCascade } from '@/lib/cascade-delete';
 import { notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned } from '@/lib/notifications';
 import { computeNextDueDate } from '@/lib/recurrence';
 import { describeTaskChanges } from '@/lib/task-activity';
+import { getIncompleteBlockers, wouldCreateCycle } from '@/lib/task-dependencies';
 import type { Workspace, Task, Subtask, AuditLog, StatusConfig, TaskActivityEntry } from '@/lib/types';
 import { getMemberUserIds } from '@/lib/member-sync';
 
@@ -124,77 +125,109 @@ export function useTasks({
     });
   }, [createTask]);
 
-  const updateTask = useCallback((taskId: string, data: Partial<Task>) => {
-    if (!db || !isAdmin || !user) return;
+  /**
+   * Applies an update to a task, subject to two dependency guards:
+   *  - Setting blockedByTaskIds is rejected outright if it would create a
+   *    circular dependency.
+   *  - Marking a task done is rejected if any of its blockers haven't
+   *    reached a completed status yet.
+   * Returns false (and writes nothing) when a guard rejects the update,
+   * true otherwise — callers that care (e.g. a "mark done" checkbox) can
+   * check this to show an explanation; callers that don't can ignore it,
+   * same as before this returned anything.
+   */
+  const updateTask = useCallback((taskId: string, data: Partial<Task>): boolean => {
+    if (!db || !isAdmin || !user) return false;
     const t = allWorkspaceTasks.find(x => x.id === taskId);
-    if (t) {
-      const ref = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
-      updateDocumentNonBlocking(ref, { ...data, updatedAt: new Date().toISOString() });
-      logAudit('update', 'task', t.id, `Updated task: ${data.title || t.title}`);
+    if (!t) return false;
 
-      // Only spin off a next occurrence the moment the task *becomes*
-      // completed (not on every subsequent edit while already done).
-      if (data.status && !isCompletedStatus(t.status) && isCompletedStatus(data.status)) {
-        spinOffNextRecurrence(t);
-      }
-
-      // Record one activity history entry per field that actually changed.
-      describeTaskChanges(t, data, getStatusInfo).forEach((summary) => {
-        logTaskActivity(t.workspaceId, t.projectId, t.id, summary, t.memberUserIds);
-      });
-
-      // Detect meaningful changes for notification
-      const changes: string[] = [];
-      if (data.title && data.title !== t.title) changes.push('title');
-      if (data.status && data.status !== t.status) changes.push('status');
-      if (data.priority && data.priority !== t.priority) changes.push('priority');
-      if (data.dueDate !== undefined && data.dueDate !== t.dueDate) changes.push('due date');
-
-      // Handle assignment changes for notifications
-      const oldAssignees = t.assigneeUserIds || [];
-      const newAssignees = data.assigneeUserIds || [];
-
-      // Who's actually assigned to the task after this update — the
-      // freshly-provided list if this call changed assignment, otherwise
-      // the task's existing assignees (data.assigneeUserIds is undefined
-      // for every single-field edit like title/status/priority/dueDate,
-      // which is how every real edit in this app is made — using
-      // newAssignees here would always be [] for those, silently
-      // preventing "task updated" notifications from ever reaching real
-      // assignees).
-      const currentAssignees = data.assigneeUserIds !== undefined ? newAssignees : oldAssignees;
-
-      // Notify newly assigned users
-      newAssignees.forEach(assigneeId => {
-        if (!oldAssignees.includes(assigneeId) && assigneeId !== user.uid) {
-          notifyTaskAssigned(db, assigneeId, { id: user.uid, name: user.displayName || 'User' }, {
-            id: t.id,
-            title: data.title || t.title,
-            workspaceId: t.workspaceId,
-            projectId: t.projectId
-          });
-        }
-      });
-
-      // Notify unassigned users
-      oldAssignees.forEach(assigneeId => {
-        if (!newAssignees.includes(assigneeId) && assigneeId !== user.uid && changes.length > 0) {
-          // Could add unassignment notification here if needed
-        }
-      });
-
-      // Notify current assignees of task updates
-      currentAssignees.forEach(assigneeId => {
-        if (assigneeId !== user.uid && changes.length > 0) {
-          notifyTaskUpdated(db, assigneeId, { id: user.uid, name: user.displayName || 'User' }, {
-            id: t.id,
-            title: t.title,
-            workspaceId: t.workspaceId,
-            projectId: t.projectId
-          }, changes);
-        }
-      });
+    if (data.blockedByTaskIds !== undefined
+      && wouldCreateCycle(allWorkspaceTasks, t.id, data.blockedByTaskIds)) {
+      console.error('Rejected task update: would create a circular dependency.');
+      return false;
     }
+
+    if (data.status && isCompletedStatus(data.status) && !isCompletedStatus(t.status)) {
+      const effectiveBlockedBy = data.blockedByTaskIds !== undefined ? data.blockedByTaskIds : t.blockedByTaskIds;
+      const incompleteBlockers = getIncompleteBlockers(
+        allWorkspaceTasks, { ...t, blockedByTaskIds: effectiveBlockedBy }, isCompletedStatus
+      );
+      if (incompleteBlockers.length > 0) {
+        console.error(
+          `Rejected task update: still blocked by ${incompleteBlockers.map((b) => b.title).join(', ')}.`
+        );
+        return false;
+      }
+    }
+
+    const ref = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
+    updateDocumentNonBlocking(ref, { ...data, updatedAt: new Date().toISOString() });
+    logAudit('update', 'task', t.id, `Updated task: ${data.title || t.title}`);
+
+    // Only spin off a next occurrence the moment the task *becomes*
+    // completed (not on every subsequent edit while already done).
+    if (data.status && !isCompletedStatus(t.status) && isCompletedStatus(data.status)) {
+      spinOffNextRecurrence(t);
+    }
+
+    // Record one activity history entry per field that actually changed.
+    describeTaskChanges(t, data, getStatusInfo).forEach((summary) => {
+      logTaskActivity(t.workspaceId, t.projectId, t.id, summary, t.memberUserIds);
+    });
+
+    // Detect meaningful changes for notification
+    const changes: string[] = [];
+    if (data.title && data.title !== t.title) changes.push('title');
+    if (data.status && data.status !== t.status) changes.push('status');
+    if (data.priority && data.priority !== t.priority) changes.push('priority');
+    if (data.dueDate !== undefined && data.dueDate !== t.dueDate) changes.push('due date');
+
+    // Handle assignment changes for notifications
+    const oldAssignees = t.assigneeUserIds || [];
+    const newAssignees = data.assigneeUserIds || [];
+
+    // Who's actually assigned to the task after this update — the
+    // freshly-provided list if this call changed assignment, otherwise
+    // the task's existing assignees (data.assigneeUserIds is undefined
+    // for every single-field edit like title/status/priority/dueDate,
+    // which is how every real edit in this app is made — using
+    // newAssignees here would always be [] for those, silently
+    // preventing "task updated" notifications from ever reaching real
+    // assignees).
+    const currentAssignees = data.assigneeUserIds !== undefined ? newAssignees : oldAssignees;
+
+    // Notify newly assigned users
+    newAssignees.forEach(assigneeId => {
+      if (!oldAssignees.includes(assigneeId) && assigneeId !== user.uid) {
+        notifyTaskAssigned(db, assigneeId, { id: user.uid, name: user.displayName || 'User' }, {
+          id: t.id,
+          title: data.title || t.title,
+          workspaceId: t.workspaceId,
+          projectId: t.projectId
+        });
+      }
+    });
+
+    // Notify unassigned users
+    oldAssignees.forEach(assigneeId => {
+      if (!newAssignees.includes(assigneeId) && assigneeId !== user.uid && changes.length > 0) {
+        // Could add unassignment notification here if needed
+      }
+    });
+
+    // Notify current assignees of task updates
+    currentAssignees.forEach(assigneeId => {
+      if (assigneeId !== user.uid && changes.length > 0) {
+        notifyTaskUpdated(db, assigneeId, { id: user.uid, name: user.displayName || 'User' }, {
+          id: t.id,
+          title: t.title,
+          workspaceId: t.workspaceId,
+          projectId: t.projectId
+        }, changes);
+      }
+    });
+
+    return true;
   }, [db, allWorkspaceTasks, isAdmin, user, logAudit, isCompletedStatus, spinOffNextRecurrence, getStatusInfo, logTaskActivity]);
 
   const deleteTask = useCallback(async (taskId: string) => {
