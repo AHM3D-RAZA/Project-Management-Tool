@@ -636,7 +636,7 @@ export function TaskDetailPanel({
               </div>
             )}
 
-            <AttachmentsSection taskId={taskId} store={store} isAdmin={isAdmin} attachments={attachments} />
+            <AttachmentsSection taskId={taskId} workspaceId={task.workspaceId} store={store} isAdmin={isAdmin} attachments={attachments} />
 
             <Separator />
 

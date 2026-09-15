@@ -15,7 +15,7 @@ A modern project + task management app built with **Next.js (App Router)**, **Ty
 - **Next.js** (App Router)
 - **React** + **TypeScript**
 - **Tailwind CSS** + shadcn/ui
-- **Firebase Auth** + **Cloud Firestore**
+- **Firebase Auth** + **Cloud Firestore** + **Cloud Storage** (task attachment uploads)
 - **Resend** (email delivery) via server action + `fetch`
 - **Sentry** (error tracking, optional)
 
@@ -143,7 +143,27 @@ firebase use --add
 firebase deploy --only firestore:rules
 ```
 
-## 5) Run locally
+## 5) Enable Storage and deploy its rules (for file uploads)
+
+Task attachments can be uploaded directly (in addition to pasting a URL or
+picking from Google Drive). This needs Firebase Storage enabled on your
+project, plus its own rules deployed:
+
+1) In the [Firebase Console](https://console.firebase.google.com/), open
+   **Build → Storage** and click **Get started** to provision the default
+   bucket (only needed once per project).
+2) Deploy `storage.rules` (included in this repo):
+
+```bash
+firebase deploy --only storage
+```
+
+Uploaded files are capped at 25MB (enforced in `storage.rules`, mirrored
+in `src/lib/file-upload.ts`) and are only readable/writable by members of
+the workspace the task belongs to — same membership check `firestore.rules`
+uses for the task itself.
+
+## 6) Run locally
 
 ```bash
 npm run dev

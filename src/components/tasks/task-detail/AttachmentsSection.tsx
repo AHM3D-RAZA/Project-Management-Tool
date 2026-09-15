@@ -1,19 +1,24 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-import { Plus, ExternalLink, Trash2 } from 'lucide-react';
+import { Plus, ExternalLink, Trash2, Upload } from 'lucide-react';
 import { GoogleDrivePickerButton } from '../GoogleDrivePickerButton';
 import type { DriveFileMetadata } from '@/lib/google-drive-picker';
+import { useStorage } from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { FileTooLargeError, uploadTaskAttachment } from '@/lib/file-upload';
 import type { Attachment } from '@/lib/types';
 import type { NexusStore } from '@/hooks/use-nexus-store';
 import { getGoogleUrlInfo } from './task-detail-utils';
 
-export function AttachmentsSection({ taskId, store, isAdmin, attachments }: {
+export function AttachmentsSection({ taskId, workspaceId, store, isAdmin, attachments }: {
   taskId: string;
+  workspaceId: string;
   store: NexusStore;
   isAdmin: boolean;
   attachments: Attachment[];
@@ -21,6 +26,32 @@ export function AttachmentsSection({ taskId, store, isAdmin, attachments }: {
   const [isAddingAttachment, setIsAddingAttachment] = useState(false);
   const [newAttachmentUrl, setNewAttachmentUrl] = useState('');
   const [newAttachmentDisplayName, setNewAttachmentDisplayName] = useState('');
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const storage = useStorage();
+  const { toast } = useToast();
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file next time
+    if (!file) return;
+
+    setUploadProgress(0);
+    try {
+      const { url, name } = await uploadTaskAttachment(storage, workspaceId, taskId, file, setUploadProgress);
+      await store.addAttachment(taskId, url, name);
+      toast({ title: 'File uploaded', description: name });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Upload failed",
+        description: error instanceof FileTooLargeError ? error.message : "That file couldn't be uploaded.",
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadProgress(null);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -28,7 +59,17 @@ export function AttachmentsSection({ taskId, store, isAdmin, attachments }: {
         Attachments
       </Label>
       {isAdmin && !isAddingAttachment && (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelected} />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 border border-dashed rounded-full text-xs"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadProgress !== null}
+          >
+            <Upload className="h-3 w-3 mr-1" /> Upload File
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -58,6 +99,12 @@ export function AttachmentsSection({ taskId, store, isAdmin, attachments }: {
               store.addAttachment(taskId, metadata.url, metadata.name);
             }}
           />
+        </div>
+      )}
+      {uploadProgress !== null && (
+        <div className="space-y-1">
+          <Progress value={uploadProgress} className="h-1.5" />
+          <span className="text-[10px] text-muted-foreground">Uploading… {Math.round(uploadProgress)}%</span>
         </div>
       )}
       {isAdmin && isAddingAttachment && (
