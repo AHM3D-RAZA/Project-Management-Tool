@@ -7,8 +7,10 @@ import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar, Trash2, Plus } from 'lucide-react';
+import { Calendar, Trash2, Plus, Sparkles, Loader2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useToast } from '@/hooks/use-toast';
+import { suggestSubtasks } from '@/ai/flows/ai-subtask-suggestion';
 import type { Subtask, WorkspaceMemberWithRole, Task } from '@/lib/types';
 import type { NexusStore } from '@/hooks/use-nexus-store';
 
@@ -192,11 +194,30 @@ export function SubtasksTabContent({ task, store, projectMembers }: {
   projectMembers: WorkspaceMemberWithRole[];
 }) {
   const [addingNew, setAddingNew] = useState(false);
+  const [isSuggestingSubtasks, setIsSuggestingSubtasks] = useState(false);
+  const { toast } = useToast();
   const subtasks = store.allWorkspaceSubtasks?.filter((s) => s.taskId === task.id) || [];
 
   const completedCount = subtasks.filter((s) => s.status === 'done').length;
   const totalCount = subtasks.length;
   const progressPercent = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+
+  const handleSuggestSubtasks = async () => {
+    if (!store.isAdmin) return;
+    setIsSuggestingSubtasks(true);
+    try {
+      const result = await suggestSubtasks({ title: task.title, description: task.description });
+      result.subtasks.forEach((title) => {
+        store.createSubtask(task.id, task.projectId, { title, status: 'todo', priority: 'medium' });
+      });
+      toast({ title: `Added ${result.subtasks.length} suggested subtask(s)` });
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Couldn't suggest subtasks", variant: 'destructive' });
+    } finally {
+      setIsSuggestingSubtasks(false);
+    }
+  };
 
   return (
     <div className="space-y-6 py-4">
@@ -204,9 +225,21 @@ export function SubtasksTabContent({ task, store, projectMembers }: {
         <div className="flex justify-between items-center text-sm font-medium">
           <span>{totalCount > 0 ? `${completedCount}/${totalCount} completed` : '0 subtasks'}</span>
           {store.isAdmin && (
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAddingNew(true)} disabled={addingNew}>
-              <Plus className="h-3 w-3 mr-1" /> Add Subtask
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5"
+                onClick={handleSuggestSubtasks}
+                disabled={isSuggestingSubtasks}
+              >
+                {isSuggestingSubtasks ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                Suggest Subtasks
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAddingNew(true)} disabled={addingNew}>
+                <Plus className="h-3 w-3 mr-1" /> Add Subtask
+              </Button>
+            </div>
           )}
         </div>
         <Progress value={progressPercent} className="h-2" />

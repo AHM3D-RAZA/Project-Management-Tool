@@ -8,6 +8,8 @@ import { Plus, Clock, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { useToast } from '@/hooks/use-toast';
+import { getIncompleteBlockers } from '@/lib/task-dependencies';
 
 const defaultColumns: { id: string, name: string, color: string }[] = [
   { id: 'todo', name: 'To Do', color: 'bg-slate-200' },
@@ -32,23 +34,29 @@ export function KanbanBoard({
   subtasks = [],
   workspaceMembers = [],
   currentUser = null,
-  columns = []
+  columns = [],
+  allWorkspaceTasks = [],
+  isCompletedStatus = (statusId: string) => statusId === 'done',
 }: { 
   tasks: Task[], 
   onTaskClick: (id: string) => void,
-  updateTask: (id: string, data: Partial<Task>) => void,
+  updateTask: (id: string, data: Partial<Task>) => boolean,
   onAddTask?: (status: string) => void,
   readOnly?: boolean,
   subtasks?: Subtask[],
   workspaceMembers?: WorkspaceMemberWithRole[],
   currentUser?: CurrentUser | null,
-  columns?: { id: string, name: string, color: string }[]
+  columns?: { id: string, name: string, color: string }[],
+  /** Full (unfiltered) task set, used to look up blockers that may not be in the currently-visible `tasks` list. */
+  allWorkspaceTasks?: Task[],
+  isCompletedStatus?: (statusId: string) => boolean,
 }) {
   const [mounted, setMounted] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [activeColumn, setActiveColumn] = useState<string | null>(null);
   const [maxWidth, setMaxWidth] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     setMounted(true);
@@ -90,6 +98,20 @@ export function KanbanBoard({
     e.preventDefault();
     const taskId = e.dataTransfer.getData('text');
     if (taskId) {
+      const task = tasks.find((t) => t.id === taskId) ?? allWorkspaceTasks.find((t) => t.id === taskId);
+      if (task && isCompletedStatus(status) && !isCompletedStatus(task.status)) {
+        const incomplete = getIncompleteBlockers(allWorkspaceTasks, task, isCompletedStatus);
+        if (incomplete.length > 0) {
+          toast({
+            title: "Can't mark as done",
+            description: `Still blocked by: ${incomplete.map((b) => b.title).join(', ')}`,
+            variant: 'destructive',
+          });
+          setDraggedTaskId(null);
+          setActiveColumn(null);
+          return;
+        }
+      }
       updateTask(taskId, { status });
     }
     setDraggedTaskId(null);
@@ -163,6 +185,10 @@ export function KanbanBoard({
                         {task.title}
                       </span>
                     </div>
+
+                    {getIncompleteBlockers(allWorkspaceTasks, task, isCompletedStatus).length > 0 && (
+                      <Badge variant="destructive" className="w-fit text-[10px] px-1.5 py-0">Blocked</Badge>
+                    )}
                     
                     {task.tags && task.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1">

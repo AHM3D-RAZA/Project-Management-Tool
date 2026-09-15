@@ -242,6 +242,8 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
             workspaceMembers={store.workspaceMembers}
             currentUser={store.currentUser}
             pipelines={store.allStatuses}
+            allWorkspaceTasks={store.allWorkspaceTasks}
+            isCompletedStatus={store.isCompletedStatus}
           />
         ) : view === 'calendar' ? (
           <TaskCalendar
@@ -267,6 +269,8 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
               workspaceMembers={store.workspaceMembers}
               currentUser={store.currentUser}
               columns={kanbanColumns}
+              allWorkspaceTasks={store.allWorkspaceTasks}
+              isCompletedStatus={store.isCompletedStatus}
             />
           </div>
         )}

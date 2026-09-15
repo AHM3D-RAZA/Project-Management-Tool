@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Task, Priority, Subtask, WorkspaceMemberWithRole, CurrentUser, StatusConfig } from '@/lib/types';
+import { getIncompleteBlockers } from '@/lib/task-dependencies';
 import { 
   CheckCircle2, 
   MoreVertical,
@@ -62,17 +63,22 @@ export function TaskList({
   subtasks = [],
   workspaceMembers = [],
   currentUser = null,
-  pipelines = []
+  pipelines = [],
+  allWorkspaceTasks = [],
+  isCompletedStatus = (statusId: string) => statusId === 'done',
 }: { 
   tasks: Task[], 
   onTaskClick: (id: string) => void,
-  updateTask: (id: string, data: Partial<Task>) => void,
+  updateTask: (id: string, data: Partial<Task>) => boolean,
   deleteTask?: (id: string) => void | Promise<void>,
   readOnly?: boolean,
   subtasks?: Subtask[],
   workspaceMembers?: WorkspaceMemberWithRole[],
   currentUser?: CurrentUser | null,
-  pipelines?: StatusConfig[]
+  pipelines?: StatusConfig[],
+  /** Full (unfiltered) task set, used to look up blockers that may not be in the currently-visible `tasks` list. */
+  allWorkspaceTasks?: Task[],
+  isCompletedStatus?: (statusId: string) => boolean,
 }) {
   const [mounted, setMounted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -270,6 +276,17 @@ export function TaskList({
                   checked={task.status === 'done'} 
                   disabled={readOnly}
                   onCheckedChange={(checked) => {
+                    if (checked) {
+                      const incomplete = getIncompleteBlockers(allWorkspaceTasks, task, isCompletedStatus);
+                      if (incomplete.length > 0) {
+                        toast({
+                          title: "Can't mark as done",
+                          description: `Still blocked by: ${incomplete.map((b) => b.title).join(', ')}`,
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+                    }
                     updateTask(task.id, { status: checked ? 'done' : firstPipelineId });
                   }}
                 />
@@ -282,6 +299,10 @@ export function TaskList({
                   )}>
                     {task.title}
                   </span>
+                  {task.blockedByTaskIds && task.blockedByTaskIds.length > 0
+                    && getIncompleteBlockers(allWorkspaceTasks, task, isCompletedStatus).length > 0 && (
+                    <Badge variant="destructive" className="w-fit text-[10px] px-1.5 py-0 mt-1">Blocked</Badge>
+                  )}
                   {task.tags && task.tags.length > 0 && (
                     <div className="flex gap-1 mt-1">
                       {task.tags.map(tag => (

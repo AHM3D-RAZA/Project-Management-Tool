@@ -33,6 +33,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { generateTaskDescription } from '@/ai/flows/ai-task-description-generation';
 import { suggestTaskAttributes } from '@/ai/flows/ai-task-attribute-suggestion';
+import { suggestDueDate } from '@/ai/flows/ai-due-date-suggestion';
 import { useToast } from '@/hooks/use-toast';
 import { Separator } from '@/components/ui/separator';
 import { useFirestore, useCollection, useMemoFirebase } from '@/firebase';
@@ -45,6 +46,8 @@ import { AttachmentsSection } from './task-detail/AttachmentsSection';
 import { CommentsSection } from './task-detail/CommentsSection';
 import { generateGoogleCalendarUrl } from './task-detail/task-detail-utils';
 import { RecurrencePicker } from '@/components/tasks/RecurrencePicker';
+import { DependenciesSection } from './task-detail/DependenciesSection';
+import { getIncompleteBlockers } from '@/lib/task-dependencies';
 
 export function TaskDetailPanel({
   taskId,
@@ -61,6 +64,7 @@ export function TaskDetailPanel({
   const { toast } = useToast();
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
   const [isSuggestingAttrs, setIsSuggestingAttrs] = useState(false);
+  const [isSuggestingDueDate, setIsSuggestingDueDate] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagValue, setNewTagValue] = useState('');
@@ -97,6 +101,18 @@ export function TaskDetailPanel({
     return store.workspaceProjects?.find((p) => p.id === task.projectId) || null;
   }, [task, store.workspaceProjects]);
 
+  // Candidate blockers for the Dependencies section, scoped to the same
+  // project so unrelated tasks elsewhere in the workspace aren't offered.
+  const projectTasks = useMemo(() => {
+    if (!task) return [];
+    return (store.allWorkspaceTasks || []).filter((t) => t.projectId === task.projectId);
+  }, [task, store.allWorkspaceTasks]);
+
+  const incompleteBlockers = useMemo(() => {
+    if (!task) return [];
+    return getIncompleteBlockers(store.allWorkspaceTasks || [], task, store.isCompletedStatus);
+  }, [task, store.allWorkspaceTasks, store.isCompletedStatus]);
+
   const eligibleAssignees = useMemo(() => {
     if (!taskProject) return store.workspaceMembers || [];
     const allowed = new Set<string>(taskProject.allowedUserIds || []);
@@ -124,8 +140,32 @@ export function TaskDetailPanel({
   const isAdmin = store.isAdmin;
 
   const handleUpdate = (field: string, value: unknown) => {
-    if (!isAdmin) return;
-    store.updateTask(taskId, { [field]: value } as Partial<Task>);
+    if (!isAdmin || !task) return;
+
+    // Give a specific, actionable reason before even attempting a
+    // "mark done" that updateTask would reject anyway — the store layer
+    // only logs a generic console.error, which isn't visible to the user.
+    if (field === 'status' && typeof value === 'string'
+      && store.isCompletedStatus(value) && !store.isCompletedStatus(task.status)) {
+      const incomplete = getIncompleteBlockers(store.allWorkspaceTasks || [], task, store.isCompletedStatus);
+      if (incomplete.length > 0) {
+        toast({
+          title: "Can't mark as done",
+          description: `Still blocked by: ${incomplete.map((b) => b.title).join(', ')}`,
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
+    const applied = store.updateTask(taskId, { [field]: value } as Partial<Task>);
+    if (!applied) {
+      toast({
+        title: 'Update failed',
+        description: "That change couldn't be applied.",
+        variant: 'destructive',
+      });
+    }
   };
 
   // These two effects were previously declared AFTER the `if (!task) return
@@ -201,6 +241,26 @@ export function TaskDetailPanel({
       console.error(error);
     } finally {
       setIsSuggestingAttrs(false);
+    }
+  };
+
+  const handleSuggestDueDate = async () => {
+    if (!isAdmin) return;
+    setIsSuggestingDueDate(true);
+    try {
+      const result = await suggestDueDate({
+        title: task.title,
+        description: task.description,
+        priority: task.priority,
+        currentDate: new Date().toISOString().split('T')[0],
+      });
+      handleUpdate('dueDate', new Date(result.dueDate).toISOString());
+      toast({ title: 'AI Due Date Suggested', description: result.reasoning });
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Couldn't suggest a due date", variant: 'destructive' });
+    } finally {
+      setIsSuggestingDueDate(false);
     }
   };
 
@@ -326,7 +386,12 @@ export function TaskDetailPanel({
           <TabsContent value="details" className="m-0 px-6 focus-visible:outline-none focus-visible:ring-0 space-y-8 py-6">
             <div className="grid grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight">Status</Label>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight">Status</Label>
+                  {incompleteBlockers.length > 0 && (
+                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Blocked</Badge>
+                  )}
+                </div>
                 <Select value={task.status} onValueChange={(val) => handleUpdate('status', val)} disabled={!isAdmin}>
                   <SelectTrigger className="h-9">
                     <SelectValue />
@@ -370,20 +435,33 @@ export function TaskDetailPanel({
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <Label className="text-xs text-muted-foreground uppercase font-bold tracking-tight">Due Date</Label>
-                  {task.dueDate && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 text-[10px] gap-1 text-primary"
-                      onClick={() => {
-                        const url = generateGoogleCalendarUrl(task);
-                        if (url) window.open(url, '_blank');
-                      }}
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Add to Calendar
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 text-primary"
+                        onClick={handleSuggestDueDate}
+                        disabled={isSuggestingDueDate}
+                      >
+                        {isSuggestingDueDate ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      </Button>
+                    )}
+                    {task.dueDate && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 text-[10px] gap-1 text-primary"
+                        onClick={() => {
+                          const url = generateGoogleCalendarUrl(task);
+                          if (url) window.open(url, '_blank');
+                        }}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Add to Calendar
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="relative">
                   <Calendar className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -440,6 +518,15 @@ export function TaskDetailPanel({
                 )}
               </div>
             </div>
+
+            <DependenciesSection
+              task={task}
+              projectTasks={projectTasks}
+              allWorkspaceTasks={store.allWorkspaceTasks || []}
+              isAdmin={isAdmin}
+              isCompletedStatus={store.isCompletedStatus}
+              onChange={(blockedByTaskIds) => handleUpdate('blockedByTaskIds', blockedByTaskIds)}
+            />
 
             <div className="space-y-4">
               <div className="flex justify-between items-center">

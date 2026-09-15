@@ -113,6 +113,8 @@ export function MyTasksView({ store }: { store: NexusStore }) {
               updateTask={updateTask}
               workspaceMembers={store.workspaceMembers}
               currentUser={store.currentUser}
+              allWorkspaceTasks={store.allWorkspaceTasks}
+              isCompletedStatus={store.isCompletedStatus}
             />
           ) : isTasksLoading ? (
             <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
