@@ -15,8 +15,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
-import { Pencil, Loader2 } from 'lucide-react';
+import { Pencil, Loader2, Send } from 'lucide-react';
 import type { NexusStore } from '@/hooks/use-nexus-store';
+import { isValidWebhookUrl } from '@/lib/webhook-validation';
+import { sendWebhookNotification } from '@/app/actions/send-webhook-notification';
 
 interface EditWorkspaceModalProps {
   isOpen: boolean;
@@ -31,6 +33,9 @@ export function EditWorkspaceModal({ isOpen, onOpenChange, store }: EditWorkspac
   const [color, setColor] = useState('#452ED2');
   const [attendanceEnabled, setAttendanceEnabled] = useState(true);
   const [minCheckoutHours, setMinCheckoutHours] = useState('8');
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
+  const [testingProvider, setTestingProvider] = useState<'slack' | 'discord' | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const workspace = store.activeWorkspace;
@@ -43,8 +48,34 @@ export function EditWorkspaceModal({ isOpen, onOpenChange, store }: EditWorkspac
       setColor(workspace.color || '#452ED2');
       setAttendanceEnabled(workspace.attendanceEnabled ?? true);
       setMinCheckoutHours(String(workspace.minCheckoutHours ?? 8));
+      setSlackWebhookUrl(workspace.notificationWebhooks?.slackUrl || '');
+      setDiscordWebhookUrl(workspace.notificationWebhooks?.discordUrl || '');
     }
   }, [workspace, isOpen]);
+
+  const handleSendTest = async (provider: 'slack' | 'discord') => {
+    const url = provider === 'slack' ? slackWebhookUrl.trim() : discordWebhookUrl.trim();
+    if (!isValidWebhookUrl(provider, url)) {
+      toast({
+        variant: 'destructive',
+        title: `That doesn't look like a valid ${provider === 'slack' ? 'Slack' : 'Discord'} webhook URL`,
+      });
+      return;
+    }
+    setTestingProvider(provider);
+    try {
+      const result = await sendWebhookNotification(
+        url, provider, `🔔 Test notification from ${workspace?.name || 'your workspace'} on PSF Project Tracker.`
+      );
+      if (result.ok) {
+        toast({ title: 'Test message sent', description: `Check your ${provider === 'slack' ? 'Slack' : 'Discord'} channel.` });
+      } else {
+        toast({ variant: 'destructive', title: 'Test message failed', description: result.error });
+      }
+    } finally {
+      setTestingProvider(null);
+    }
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -64,6 +95,17 @@ export function EditWorkspaceModal({ isOpen, onOpenChange, store }: EditWorkspac
       return;
     }
 
+    const trimmedSlackUrl = slackWebhookUrl.trim();
+    if (trimmedSlackUrl && !isValidWebhookUrl('slack', trimmedSlackUrl)) {
+      toast({ variant: 'destructive', title: "That doesn't look like a valid Slack webhook URL" });
+      return;
+    }
+    const trimmedDiscordUrl = discordWebhookUrl.trim();
+    if (trimmedDiscordUrl && !isValidWebhookUrl('discord', trimmedDiscordUrl)) {
+      toast({ variant: 'destructive', title: "That doesn't look like a valid Discord webhook URL" });
+      return;
+    }
+
     setIsSaving(true);
     try {
       await store.updateWorkspace(workspace.id, {
@@ -72,6 +114,10 @@ export function EditWorkspaceModal({ isOpen, onOpenChange, store }: EditWorkspac
         color,
         attendanceEnabled,
         minCheckoutHours: parsedHours,
+        notificationWebhooks: {
+          slackUrl: trimmedSlackUrl || null,
+          discordUrl: trimmedDiscordUrl || null,
+        },
       });
       toast({
         title: 'Workspace updated',
@@ -194,6 +240,59 @@ export function EditWorkspaceModal({ isOpen, onOpenChange, store }: EditWorkspac
                   </p>
                 </div>
               )}
+            </div>
+
+            <div className="space-y-4 pt-4 border-t">
+              <div className="space-y-0.5">
+                <Label>Notification Webhooks</Label>
+                <p className="text-sm text-muted-foreground">
+                  Post a message to Slack and/or Discord when a task is created or marked done.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ws-slack-webhook">Slack webhook URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="ws-slack-webhook"
+                    value={slackWebhookUrl}
+                    onChange={(e) => setSlackWebhookUrl(e.target.value)}
+                    placeholder="https://hooks.slack.com/services/..."
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => handleSendTest('slack')}
+                    disabled={!slackWebhookUrl.trim() || testingProvider !== null}
+                    title="Send a test message"
+                  >
+                    {testingProvider === 'slack' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="ws-discord-webhook">Discord webhook URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="ws-discord-webhook"
+                    value={discordWebhookUrl}
+                    onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                    placeholder="https://discord.com/api/webhooks/..."
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => handleSendTest('discord')}
+                    disabled={!discordWebhookUrl.trim() || testingProvider !== null}
+                    title="Send a test message"
+                  >
+                    {testingProvider === 'discord' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
 
