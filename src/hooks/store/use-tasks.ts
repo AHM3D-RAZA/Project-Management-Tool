@@ -11,6 +11,7 @@ import { notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned } from '@/
 import { computeNextDueDate } from '@/lib/recurrence';
 import { describeTaskChanges } from '@/lib/task-activity';
 import { getIncompleteBlockers, wouldCreateCycle } from '@/lib/task-dependencies';
+import { dispatchTaskEventWebhooks } from '@/lib/webhook-dispatch';
 import type { Workspace, Task, Subtask, AuditLog, StatusConfig, TaskActivityEntry } from '@/lib/types';
 import { getMemberUserIds } from '@/lib/member-sync';
 
@@ -86,6 +87,7 @@ export function useTasks({
     try {
       await setDocumentNonBlocking(taskRef, taskData, { merge: true });
       logTaskActivity(wsId, projectId, taskRef.id, 'Created this task', taskData.memberUserIds);
+      dispatchTaskEventWebhooks(activeWorkspace, 'created', data.title, user.displayName || 'User');
 
       // Notify assignees if they're not the current user
       if (data.assigneeUserIds && data.assigneeUserIds.length > 0) {
@@ -105,7 +107,7 @@ export function useTasks({
       console.error("Failed to create task:", e);
       return null;
     }
-  }, [db, user, hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logTaskActivity]);
+  }, [db, user, activeWorkspace, hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logTaskActivity]);
 
   /**
    * When a recurring task (one with a `recurrence` rule and a due date)
@@ -171,6 +173,7 @@ export function useTasks({
     // completed (not on every subsequent edit while already done).
     if (data.status && !isCompletedStatus(t.status) && isCompletedStatus(data.status)) {
       spinOffNextRecurrence(t);
+      dispatchTaskEventWebhooks(activeWorkspace, 'completed', t.title, user.displayName || 'User');
     }
 
     // Record one activity history entry per field that actually changed.
@@ -231,7 +234,7 @@ export function useTasks({
     });
 
     return true;
-  }, [db, allWorkspaceTasks, isAdmin, user, logAudit, isCompletedStatus, spinOffNextRecurrence, getStatusInfo, logTaskActivity]);
+  }, [db, allWorkspaceTasks, isAdmin, user, activeWorkspace, logAudit, isCompletedStatus, spinOffNextRecurrence, getStatusInfo, logTaskActivity]);
 
   const deleteTask = useCallback(async (taskId: string) => {
     if (!db || !isAdmin) return;

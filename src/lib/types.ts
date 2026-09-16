@@ -63,6 +63,13 @@ export interface Workspace {
    * /TODO.md ("Instant member backfill on self-service join") for the
    * planned proper fix (Cloud Function, requires the Blaze plan). */
   pendingMemberSync?: boolean;
+  /** Outgoing Slack/Discord webhook URLs for task-event notifications (see webhook-dispatch.ts). Unset/empty means no webhook is configured for that provider. */
+  notificationWebhooks?: WorkspaceWebhookConfig;
+}
+
+export interface WorkspaceWebhookConfig {
+  slackUrl?: string | null;
+  discordUrl?: string | null;
 }
 
 export interface WorkspaceMember {
