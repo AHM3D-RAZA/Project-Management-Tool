@@ -172,6 +172,10 @@ export interface Task {
    * can never drift out of sync.
    */
   blockedByTaskIds?: string[];
+  /** userId -> ISO timestamp of when they started their current timer on this task. Absent/no entry for a user means no timer running. See time-tracking.ts. */
+  activeTimers?: Record<string, string>;
+  /** Cumulative tracked seconds from every completed (stopped) timer session on this task — the source for project-level time rollups. See time-tracking.ts. */
+  totalTrackedSeconds?: number;
 }
 
 export interface Subtask {

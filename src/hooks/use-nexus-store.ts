@@ -130,7 +130,7 @@ export function useNexusStore() {
     return allWorkspaceTasks.filter(t => t.projectId === activeProject.id);
   }, [allWorkspaceTasks, activeProject]);
 
-  const { createTask, updateTask, deleteTask, createSubtask, updateSubtask, deleteSubtask } = useTasks({
+  const { createTask, updateTask, deleteTask, createSubtask, updateSubtask, deleteSubtask, startTaskTimer, stopTaskTimer } = useTasks({
     db, user, activeWorkspace, isAdmin, allWorkspaceTasks, allWorkspaceSubtasks,
     hasWorkspaceAdminAccess, getMemberUserIdsForWorkspace, logAudit, isCompletedStatus, getStatusInfo, storage,
   });
@@ -205,6 +205,8 @@ export function useNexusStore() {
     createSubtask,
     updateSubtask,
     deleteSubtask,
+    startTaskTimer,
+    stopTaskTimer,
     markNotificationAsRead: async (notifId: string) => {
       if (!db || !user) return;
       const ref = doc(db, 'notifications', notifId);

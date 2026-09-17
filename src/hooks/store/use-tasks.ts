@@ -11,6 +11,7 @@ import { notifyTaskAssigned, notifyTaskUpdated, notifySubtaskAssigned } from '@/
 import { computeNextDueDate } from '@/lib/recurrence';
 import { describeTaskChanges } from '@/lib/task-activity';
 import { getIncompleteBlockers, wouldCreateCycle } from '@/lib/task-dependencies';
+import { formatDuration, startTimer, stopTimer } from '@/lib/time-tracking';
 import { dispatchTaskEventWebhooks } from '@/lib/webhook-dispatch';
 import type { Workspace, Task, Subtask, AuditLog, StatusConfig, TaskActivityEntry } from '@/lib/types';
 import { getMemberUserIds } from '@/lib/member-sync';
@@ -236,6 +237,37 @@ export function useTasks({
     return true;
   }, [db, allWorkspaceTasks, isAdmin, user, activeWorkspace, logAudit, isCompletedStatus, spinOffNextRecurrence, getStatusInfo, logTaskActivity]);
 
+  /**
+   * Starts a timer for the current user on this task. Deliberately gated
+   * on membership only (not isAdmin, unlike updateTask) — Firestore's own
+   * task write rule already allows any workspace member to write to a
+   * task, and time tracking is a personal action anyone doing the work
+   * should be able to do, not something only admins/leads can touch.
+   */
+  const startTaskTimer = useCallback((taskId: string): boolean => {
+    if (!db || !user) return false;
+    const t = allWorkspaceTasks.find(x => x.id === taskId);
+    if (!t) return false;
+    const update = startTimer(t, user.uid);
+    if (!update) return false;
+    const ref = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
+    updateDocumentNonBlocking(ref, { ...update, updatedAt: new Date().toISOString() });
+    return true;
+  }, [db, user, allWorkspaceTasks]);
+
+  /** Stops the current user's running timer on this task and logs the session length to its activity history. */
+  const stopTaskTimer = useCallback((taskId: string): boolean => {
+    if (!db || !user) return false;
+    const t = allWorkspaceTasks.find(x => x.id === taskId);
+    if (!t) return false;
+    const result = stopTimer(t, user.uid);
+    if (!result) return false;
+    const ref = doc(db, 'workspaces', t.workspaceId, 'projects', t.projectId, 'tasks', t.id);
+    updateDocumentNonBlocking(ref, { ...result.update, updatedAt: new Date().toISOString() });
+    logTaskActivity(t.workspaceId, t.projectId, t.id, `Tracked ${formatDuration(result.elapsedSeconds)}`, t.memberUserIds);
+    return true;
+  }, [db, user, allWorkspaceTasks, logTaskActivity]);
+
   const deleteTask = useCallback(async (taskId: string) => {
     if (!db || !isAdmin) return;
     const t = allWorkspaceTasks.find(x => x.id === taskId);
@@ -322,5 +354,7 @@ export function useTasks({
     createSubtask,
     updateSubtask,
     deleteSubtask,
+    startTaskTimer,
+    stopTaskTimer,
   };
 }
