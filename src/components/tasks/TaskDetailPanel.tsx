@@ -47,6 +47,7 @@ import { CommentsSection } from './task-detail/CommentsSection';
 import { generateGoogleCalendarUrl } from './task-detail/task-detail-utils';
 import { RecurrencePicker } from '@/components/tasks/RecurrencePicker';
 import { DependenciesSection } from './task-detail/DependenciesSection';
+import { TimeTrackingSection } from './task-detail/TimeTrackingSection';
 import { getIncompleteBlockers } from '@/lib/task-dependencies';
 
 export function TaskDetailPanel({
@@ -527,6 +528,8 @@ export function TaskDetailPanel({
               isCompletedStatus={store.isCompletedStatus}
               onChange={(blockedByTaskIds) => handleUpdate('blockedByTaskIds', blockedByTaskIds)}
             />
+
+            <TimeTrackingSection task={task} store={store} />
 
             <div className="space-y-4">
               <div className="flex justify-between items-center">

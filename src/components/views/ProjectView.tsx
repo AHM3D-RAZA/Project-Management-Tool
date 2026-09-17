@@ -11,7 +11,8 @@ import {
   Settings,
   Columns,
   SlidersHorizontal,
-  Download
+  Download,
+  Timer
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { exportTasksToCsv, exportTasksToPdf } from '@/lib/export-tasks';
+import { formatDuration, getProjectTrackedSeconds } from '@/lib/time-tracking';
 import { TaskList } from '../tasks/TaskList';
 import { KanbanBoard } from '../tasks/KanbanBoard';
 import { TaskCalendar } from '../tasks/TaskCalendar';
@@ -67,6 +69,11 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
       return title.includes(q) || tags.some((tag: string) => tag.includes(q));
     });
   }, [store.projectTasks, store.globalSearchQuery]);
+
+  const projectTrackedSeconds = useMemo(() => {
+    if (!activeProject) return 0;
+    return getProjectTrackedSeconds(store.projectTasks || [], activeProject.id);
+  }, [store.projectTasks, activeProject]);
 
   const eligibleAssignees = useMemo(() => {
     if (!activeProject) return [];
@@ -121,7 +128,15 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
           </Button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          {projectTrackedSeconds > 0 && (
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Timer className="h-4 w-4" />
+              <span>{formatDuration(projectTrackedSeconds)} tracked</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-2 h-8">
@@ -222,6 +237,7 @@ export function ProjectView({ store, initialTaskId, onInitialTaskConsumed }: { s
               Add Task
             </Button>
           )}
+          </div>
         </div>
       </div>
 
