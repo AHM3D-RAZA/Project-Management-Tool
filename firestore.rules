@@ -24,6 +24,22 @@ service cloud.firestore {
       return isSignedIn() && (isOwner || isLead);
     }
 
+    // A guest can see everything a member can (isWorkspaceMember covers
+    // both), but writes nothing — see isWorkspaceContributor below, which
+    // is the check every actual write rule uses.
+    function isWorkspaceGuest(workspaceId) {
+      let ws = getWorkspace(workspaceId);
+      return isSignedIn() && ws.data.memberRoles[request.auth.uid] == 'guest';
+    }
+
+    // True for any member who isn't a guest — i.e. can create/edit/delete
+    // content, not just view it. This is the check task/subtask/comment/
+    // attachment/activity writes use; isWorkspaceMember alone would let a
+    // guest write too, which defeats the point of the role.
+    function isWorkspaceContributor(workspaceId) {
+      return isWorkspaceMember(workspaceId) && !isWorkspaceGuest(workspaceId);
+    }
+
     function isWorkspaceOwner(workspaceId) {
       let ws = getWorkspace(workspaceId);
       return isSignedIn() && ws.data.ownerUserId == request.auth.uid;
@@ -39,19 +55,21 @@ service cloud.firestore {
     }
 
     // A user accepting an invite writes their own uid into memberRoles as
-    // 'member' or 'lead' (never 'owner'), may flag pendingMemberSync (see
-    // Workspace.pendingMemberSync in lib/types.ts — and /TODO.md for why
-    // this flag exists and its planned proper fix) for an admin to pick up
-    // later, and cannot touch anything else on the workspace doc. This is
-    // the ONLY way a non-admin may update a workspace document.
+    // 'member', 'lead', or 'guest' (never 'owner'), may flag
+    // pendingMemberSync (see Workspace.pendingMemberSync in lib/types.ts
+    // — and /TODO.md for why this flag exists and its planned proper fix)
+    // for an admin to pick up later, and cannot touch anything else on
+    // the workspace doc. This is the ONLY way a non-admin may update a
+    // workspace document.
     function isAcceptingInvite(workspaceId) {
       let before = resource.data;
       let after = request.resource.data;
       let changedKeys = after.diff(before).affectedKeys();
       let memberRoleChanges = after.memberRoles.diff(before.memberRoles).affectedKeys();
+      let newRole = after.memberRoles[request.auth.uid];
       return isSignedIn()
         && !(request.auth.uid in before.memberRoles)
-        && (after.memberRoles[request.auth.uid] == 'member' || after.memberRoles[request.auth.uid] == 'lead')
+        && (newRole == 'member' || newRole == 'lead' || newRole == 'guest')
         && changedKeys.hasOnly(['memberRoles', 'updatedAt', 'pendingMemberSync'])
         // only the caller's own key inside memberRoles may change — no one
         // else's role can be touched in the same write.
@@ -178,13 +196,16 @@ service cloud.firestore {
         // everyone" queries working without a get()-based rule.
         allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
 
-        // Create: only own entry, and must be a workspace member
+        // Create: only own entry, and must be a contributor — not a
+        // guest. Guests are view-only visitors, not tracked team members,
+        // so they don't check in/out.
         allow create: if isSignedIn()
           && request.auth.uid == request.resource.data.userId
-          && isWorkspaceMember(workspaceId);
+          && isWorkspaceContributor(workspaceId);
 
-        // Update: only own entry, must be a workspace member, and — when
-        // this update is the one setting checkOutTime for the first time —
+        // Update: only own entry, must be a contributor (see create,
+        // above), and — when this update is the one setting checkOutTime
+        // for the first time —
         // a minimum-hours-since-checkin rule is enforced using the
         // server-authoritative checkInServerTime, not the client-supplied
         // checkInTime string (which a skewed device clock could
@@ -195,7 +216,7 @@ service cloud.firestore {
         // to check out.
         allow update: if isSignedIn()
           && request.auth.uid == request.resource.data.userId
-          && isWorkspaceMember(workspaceId)
+          && isWorkspaceContributor(workspaceId)
           && (
             !(resource.data.checkOutTime == null && request.resource.data.checkOutTime != null)
             || !('checkInServerTime' in resource.data)
@@ -232,10 +253,11 @@ service cloud.firestore {
         // attendance's list rule above; same tradeoff applies here.
         allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
 
-        // Create: only own update, and must be a workspace member
+        // Create: only own update, and must be a contributor — not a
+        // guest (see the equivalent note on attendance's create rule).
         allow create: if isSignedIn()
           && request.auth.uid == request.resource.data.userId
-          && isWorkspaceMember(workspaceId);
+          && isWorkspaceContributor(workspaceId);
 
         // Update: never needed. Delete: same reasoning as audit_logs —
         // only the workspace owner, only for cascade teardown of the
@@ -254,34 +276,40 @@ service cloud.firestore {
         match /tasks/{taskId} {
           allow get: if isWorkspaceMember(workspaceId);
           allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
-          allow write: if isWorkspaceMember(workspaceId);
+          // Contributors only — guests can view a task but not edit/
+          // delete it (or, by extension, start/stop a timer on it, which
+          // is just a task field write).
+          allow write: if isWorkspaceContributor(workspaceId);
 
           match /subtasks/{subtaskId} {
             allow get: if isWorkspaceMember(workspaceId);
             allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
-            allow write: if isWorkspaceMember(workspaceId);
+            allow write: if isWorkspaceContributor(workspaceId);
           }
 
           match /comments/{commentId} {
             allow get: if isWorkspaceMember(workspaceId);
             allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
-            allow write: if isWorkspaceMember(workspaceId);
+            allow write: if isWorkspaceContributor(workspaceId);
           }
 
           match /attachments/{attachmentId} {
             allow get: if isWorkspaceMember(workspaceId);
             allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
-            allow write: if isWorkspaceMember(workspaceId);
+            allow write: if isWorkspaceContributor(workspaceId);
           }
 
           match /activity/{activityId} {
             // System-generated history, not user-written — same
             // visibility as comments/attachments, but immutable once
             // created (like audit_logs) and only removable via the
-            // admin-driven cascade delete of the task itself.
+            // admin-driven cascade delete of the task itself. Create is
+            // contributor-gated for defense in depth even though a guest
+            // could never trigger one through the app (every action that
+            // logs activity already requires a contributor write first).
             allow get: if isWorkspaceMember(workspaceId);
             allow list: if isSignedIn() && request.auth.uid in resource.data.memberUserIds;
-            allow create: if isWorkspaceMember(workspaceId)
+            allow create: if isWorkspaceContributor(workspaceId)
                           && request.resource.data.actorId == request.auth.uid;
             allow update: if false;
             allow delete: if isWorkspaceAdmin(workspaceId);

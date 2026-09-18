@@ -42,13 +42,16 @@ export interface User {
   lastActiveWorkspaceId?: string | null;
 }
 
+/** A guest can see everything a member can, but cannot create, edit, or delete anything. */
+export type WorkspaceRole = 'owner' | 'lead' | 'member' | 'guest';
+
 export interface Workspace {
   id: string;
   name: string;
   description: string;
   color: string;
   ownerUserId: string;
-  memberRoles: Record<string, 'owner' | 'lead' | 'member'>;
+  memberRoles: Record<string, WorkspaceRole>;
   createdAt: string;
   updatedAt: string;
   /** Whether Attendance/Work Updates tracking is enabled for this workspace. Defaults to true when unset, so existing workspaces are unaffected. */
@@ -91,7 +94,7 @@ export interface WorkspaceMember {
 export interface WorkspaceMemberWithRole {
   id: string;
   userId: string;
-  role: 'owner' | 'lead' | 'member';
+  role: WorkspaceRole;
   displayName: string | null;
   email: string | null;
   avatarUrl?: string | null;

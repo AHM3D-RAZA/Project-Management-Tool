@@ -5,7 +5,7 @@ import type { Firestore } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { collection, doc, limit, orderBy, query } from 'firebase/firestore';
 import { useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
-import type { Workspace, AuditLog } from '@/lib/types';
+import type { Workspace, AuditLog, WorkspaceRole } from '@/lib/types';
 import { getMemberUserIds, getAdminUserIds } from '@/lib/member-sync';
 
 interface UseAuditLogParams {
@@ -14,7 +14,7 @@ interface UseAuditLogParams {
   activeWorkspace: Workspace | null;
   isAuthReady: boolean;
   isAdmin: boolean;
-  currentRole: 'owner' | 'lead' | 'member' | null;
+  currentRole: WorkspaceRole | null;
 }
 
 /**

@@ -20,14 +20,22 @@ service firebase.storage {
         (ws.data.ownerUserId == request.auth.uid || request.auth.uid in ws.data.memberRoles);
     }
 
+    // Mirrors isWorkspaceContributor in firestore.rules: a member who
+    // isn't a guest. Guests can view/download attachments (covered by
+    // isWorkspaceMember on `read`, below) but not upload or delete them.
+    function isWorkspaceContributor(workspaceId) {
+      let ws = getWorkspace(workspaceId);
+      return isWorkspaceMember(workspaceId) && ws.data.memberRoles[request.auth.uid] != 'guest';
+    }
+
     // Task attachments, uploaded via the "Upload File" button — see
     // src/lib/file-upload.ts. Path mirrors the task's Firestore location
     // (workspace/task) so this check can reuse the same membership data.
     match /workspaces/{workspaceId}/tasks/{taskId}/{fileName} {
       allow read: if isWorkspaceMember(workspaceId);
-      allow write: if isWorkspaceMember(workspaceId)
+      allow write: if isWorkspaceContributor(workspaceId)
                    && request.resource.size < 25 * 1024 * 1024;
-      allow delete: if isWorkspaceMember(workspaceId);
+      allow delete: if isWorkspaceContributor(workspaceId);
     }
 
     // Deny everything else by default.
